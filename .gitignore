@@ -1,0 +1,25 @@
+# Backend Laravel dependencies and local runtime files
+/Backend/.env
+/Backend/vendor/
+/Backend/node_modules/
+/Backend/bootstrap/cache/*.php
+/Backend/storage/framework/
+/Backend/storage/logs/
+
+# Accidental Laravel runtime copies at repository root
+/.env
+/app/
+/bootstrap/
+/database/
+/node_modules/
+/resources/
+/storage/
+/vendor/
+
+# Common local editor and OS files
+/.codex/
+/.cursor/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db

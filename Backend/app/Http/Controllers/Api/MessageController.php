@@ -24,6 +24,19 @@ class MessageController extends Controller
 
     public function store(Request $request, Conversation $conversation): JsonResponse
     {
+        if (
+            $conversation->status === 'closed'
+            || $conversation->created_at->lte(now()->subHours(24))
+        ) {
+            if ($conversation->status !== 'closed') {
+                $conversation->update(['status' => 'closed']);
+            }
+
+            return response()->json([
+                'message' => 'La ventana de atención de 24 horas ha finalizado.',
+            ], 422);
+        }
+
         $data = $request->validate([
             'body' => ['required', 'string', 'max:4096'],
         ]);

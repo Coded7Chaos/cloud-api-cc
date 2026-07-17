@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -36,5 +37,11 @@ class User extends Authenticatable implements MustVerifyEmail
     public function scheduleVersions(): HasMany
     {
         return $this->hasMany(ScheduleVersion::class);
+    }
+
+    /** @return BelongsToMany<Tarea, $this> */
+    public function tareas(): BelongsToMany
+    {
+        return $this->belongsToMany(Tarea::class, 'tarea_user')->withTimestamps();
     }
 }

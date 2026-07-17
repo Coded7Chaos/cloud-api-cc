@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\ConversationController;
+use App\Http\Controllers\Api\ConversationController as ApiConversationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\MediaController;
+use App\Http\Controllers\TareaController;
 use Illuminate\Support\Facades\Route;
 
 // Descarga de media privada de los chats. Firmada (URL temporal) + autenticada.
@@ -33,13 +35,22 @@ Route::prefix('api')->group(function () {
         Route::apiResource('users', UserController::class)
             ->only(['index', 'store', 'update', 'destroy']);
 
-        Route::get('/conversations', [ConversationController::class, 'index']);
-        Route::get('/conversations/{conversation}', [ConversationController::class, 'show']);
+        Route::get('/conversations', [ApiConversationController::class, 'index']);
+        Route::get('/conversations/{conversation}', [ApiConversationController::class, 'show']);
         Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
 
         Route::get('/schedules', [ScheduleController::class, 'index']);
         Route::put('/users/{user}/schedule', [ScheduleController::class, 'update']);
     });
+});
+
+Route::get('/agente/historial', [ConversationController::class, 'historial'])
+    ->middleware('auth')
+    ->name('agente.historial');
+
+Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/tareas/create', [TareaController::class, 'create'])->name('tareas.create');
+    Route::post('/tareas', [TareaController::class, 'store'])->name('tareas.store');
 });
 
 // Shell del SPA: cualquier ruta GET que no sea API/media/health devuelve el
