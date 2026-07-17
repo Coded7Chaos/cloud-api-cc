@@ -25,8 +25,10 @@ class DatabaseSeeder extends Seeder
                 'last_name' => 'Patra',
                 'password' => 'password', // se castea a hashed en el modelo
                 'email_verified_at' => now(),
+                'is_admin' => true,
             ],
         );
+        $agent->update(['is_admin' => true]);
 
         // Algunos agentes más para la pantalla de Usuarios.
         User::factory()->count(3)->create();

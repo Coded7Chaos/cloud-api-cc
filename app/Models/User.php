@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'last_name', 'email', 'password'])]
+#[Fillable(['name', 'last_name', 'email', 'password', 'is_admin'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmail
 {
@@ -30,6 +30,7 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
         ];
     }
 
@@ -42,6 +43,20 @@ class User extends Authenticatable implements MustVerifyEmail
     /** @return BelongsToMany<Tarea, $this> */
     public function tareas(): BelongsToMany
     {
-        return $this->belongsToMany(Tarea::class, 'tarea_user')->withTimestamps();
+        return $this->belongsToMany(Tarea::class, 'tarea_user')
+            ->withPivot(['status', 'completed_at'])
+            ->withTimestamps();
+    }
+
+    /** @return HasMany<Conversation, $this> */
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'assigned_user_id');
+    }
+
+    /** @return HasMany<Message, $this> */
+    public function sentMessages(): HasMany
+    {
+        return $this->hasMany(Message::class, 'sender_user_id');
     }
 }

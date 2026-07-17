@@ -14,6 +14,8 @@ class Tarea extends Model
     /** @return BelongsToMany<User, $this> */
     public function usuarios(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'tarea_user')->withTimestamps();
+        return $this->belongsToMany(User::class, 'tarea_user')
+            ->withPivot(['status', 'completed_at'])
+            ->withTimestamps();
     }
 }

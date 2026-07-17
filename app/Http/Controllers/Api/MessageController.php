@@ -26,7 +26,7 @@ class MessageController extends Controller
     {
         if (
             $conversation->status === 'closed'
-            || $conversation->created_at->lte(now()->subHours(24))
+            || ($conversation->last_message_at ?? $conversation->created_at)->lte(now()->subHours(24))
         ) {
             if ($conversation->status !== 'closed') {
                 $conversation->update(['status' => 'closed']);

@@ -19,8 +19,10 @@ use Illuminate\Support\Facades\DB;
 class ScheduleController extends Controller
 {
     /** Todos los usuarios con su horario vigente y sus turnos. */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        abort_unless($request->user()?->is_admin, 403);
+
         $users = User::query()
             ->orderBy('name')
             ->with(['scheduleVersions' => function ($q) {
@@ -58,6 +60,8 @@ class ScheduleController extends Controller
     /** Reemplaza los turnos del horario vigente de un usuario. */
     public function update(Request $request, User $user): JsonResponse
     {
+        abort_unless($request->user()?->is_admin, 403);
+
         $data = $request->validate([
             'shifts' => ['present', 'array'],
             'shifts.*.weekday' => ['required', 'integer', 'between:1,7'],
@@ -77,6 +81,6 @@ class ScheduleController extends Controller
             }
         });
 
-        return $this->index();
+        return $this->index($request);
     }
 }

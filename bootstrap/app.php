@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\EnsureAdmin;
+use App\Http\Middleware\EnsureAgent;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -13,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->alias([
+            'admin' => EnsureAdmin::class,
+            'agent' => EnsureAgent::class,
+        ]);
         // Navegación web sin sesión -> al login del SPA. Las rutas /api/* que
         // esperan JSON devuelven 401 igual (no redirigen), gracias a la regla
         // shouldRenderJsonWhen de abajo.

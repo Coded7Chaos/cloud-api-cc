@@ -15,7 +15,13 @@ class CerrarChatsInactivos extends Command
     {
         $cantidad = Conversation::query()
             ->where('status', '!=', 'closed')
-            ->where('created_at', '<=', now()->subHours(24))
+            ->where(function ($query): void {
+                $query->where('last_message_at', '<=', now()->subHours(24))
+                    ->orWhere(function ($query): void {
+                        $query->whereNull('last_message_at')
+                            ->where('created_at', '<=', now()->subHours(24));
+                    });
+            })
             ->update([
                 'status' => 'closed',
                 'updated_at' => now(),

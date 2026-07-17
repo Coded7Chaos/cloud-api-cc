@@ -15,8 +15,10 @@ use Illuminate\Validation\Rules\Password;
 class UserController extends Controller
 {
     /** Lista de usuarios para la pantalla "Usuarios". */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        abort_unless($request->user()?->is_admin, 403);
+
         $users = User::query()
             ->orderBy('name')
             ->get(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at']);
@@ -27,6 +29,8 @@ class UserController extends Controller
     /** Crea un usuario. */
     public function store(Request $request): JsonResponse
     {
+        abort_unless($request->user()?->is_admin, 403);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
@@ -46,6 +50,8 @@ class UserController extends Controller
     /** Actualiza un usuario. La contraseña es opcional. */
     public function update(Request $request, User $user): JsonResponse
     {
+        abort_unless($request->user()?->is_admin, 403);
+
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -67,6 +73,8 @@ class UserController extends Controller
     /** Elimina (soft delete) un usuario. */
     public function destroy(Request $request, User $user): JsonResponse
     {
+        abort_unless($request->user()?->is_admin, 403);
+
         // No permitir que un usuario se borre a sí mismo desde el panel.
         if ($request->user()->is($user)) {
             return response()->json(['message' => 'No puedes eliminar tu propia cuenta.'], 422);

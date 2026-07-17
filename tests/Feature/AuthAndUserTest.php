@@ -45,7 +45,7 @@ class AuthAndUserTest extends TestCase
 
     public function test_agent_can_be_created(): void
     {
-        $this->actingAs(User::factory()->create());
+        $this->actingAs(User::factory()->create(['is_admin' => true]));
 
         $this->postJson('/api/users', [
             'name' => 'Nuevo',
@@ -60,7 +60,7 @@ class AuthAndUserTest extends TestCase
 
     public function test_creating_user_with_duplicate_email_fails(): void
     {
-        $this->actingAs(User::factory()->create());
+        $this->actingAs(User::factory()->create(['is_admin' => true]));
         User::factory()->create(['email' => 'existe@cc.test']);
 
         $this->postJson('/api/users', [
@@ -74,7 +74,7 @@ class AuthAndUserTest extends TestCase
 
     public function test_user_is_soft_deleted_and_cannot_delete_self(): void
     {
-        $me = User::factory()->create();
+        $me = User::factory()->create(['is_admin' => true]);
         $other = User::factory()->create();
         $this->actingAs($me);
 

@@ -1,0 +1,9 @@
+@extends('layouts.app')
+@section('title','Horarios')
+@section('content')
+<div class="grid gap-4 lg:grid-cols-[260px_1fr]"><aside class="rounded-2xl bg-white p-3"><h1 class="px-3 py-3 text-lg font-semibold text-[#004479]">Horarios</h1>@foreach($users as $user)<a href="{{ route('admin.schedules.index',['user'=>$user]) }}" @class(['mb-1 block rounded-xl px-3 py-2.5 text-sm','bg-[#004479]/10 text-[#004479] font-medium'=>$selected?->is($user),'hover:bg-slate-50'=>!$selected?->is($user)])>{{ $user->name }} {{ $user->last_name }}</a>@endforeach</aside>
+<section class="rounded-2xl bg-white overflow-hidden"><header class="border-b px-6 py-5"><h2 class="text-lg font-semibold text-[#004479]">{{ $selected?->name }} {{ $selected?->last_name }}</h2><p class="text-sm text-slate-500">Configura un turno por día. Deja vacío para descanso.</p></header>@if($selected)<form method="POST" action="{{ route('admin.schedules.update',$selected) }}" class="p-5 space-y-2">@csrf @method('PUT')
+@php($byDay=collect($schedule?->shifts ?? [])->keyBy('weekday'))
+@foreach([1=>'Lunes',2=>'Martes',3=>'Miércoles',4=>'Jueves',5=>'Viernes',6=>'Sábado',7=>'Domingo'] as $day=>$label)@php($shift=$byDay->get($day))<div class="grid items-center gap-3 border-b py-3 sm:grid-cols-[120px_1fr_1fr]"><strong class="text-sm text-[#004479]">{{ $label }}</strong><input type="hidden" name="shifts[{{ $day }}][weekday]" value="{{ $day }}"><input type="time" name="shifts[{{ $day }}][start_time]" value="{{ $shift?substr($shift->start_time,0,5):'' }}" class="rounded-lg bg-slate-50 px-3 py-2"><input type="time" name="shifts[{{ $day }}][end_time]" value="{{ $shift?substr($shift->end_time,0,5):'' }}" class="rounded-lg bg-slate-50 px-3 py-2"></div>@endforeach
+<div class="text-right pt-3"><button class="rounded-xl bg-[#004479] px-5 py-2.5 text-white">Guardar horario</button></div></form>@endif</section></div>
+@endsection
