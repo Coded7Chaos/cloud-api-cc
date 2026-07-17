@@ -127,18 +127,23 @@ export default function ChatsPage() {
     }, [conversations, isSoporte, openChat]);
 
     const sendMessage = useCallback(
-        async (body: string) => {
+        async (body: string, media?: File | null) => {
             if (selectedId == null || detail?.can_send === false) return;
             setSending(true);
             try {
-                const res = await api.post(`/conversations/${selectedId}/messages`, { body });
+                const payload = new FormData();
+                if (body) payload.append('body', body);
+                if (media) payload.append('media', media);
+
+                const res = await api.post(`/conversations/${selectedId}/messages`, payload);
                 const message = res.data.data;
                 // Añadimos el mensaje al hilo abierto (el polling luego lo reconcilia).
                 setDetail((prev) => (prev ? { ...prev, messages: [...prev.messages, message] } : prev));
                 // Y actualizamos la vista previa + reordenamos la bandeja.
                 setConversations((prev) => {
+                    const preview = body || (media ? media.name : '');
                     const updated = prev.map((c) =>
-                        c.id === selectedId ? { ...c, preview: body, last_message_at: message.sent_at } : c,
+                        c.id === selectedId ? { ...c, preview, last_message_at: message.sent_at } : c,
                     );
                     return [...updated].sort((a, b) =>
                         (b.last_message_at ?? '').localeCompare(a.last_message_at ?? ''),

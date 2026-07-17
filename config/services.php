@@ -43,4 +43,10 @@ return [
         'app_secret' => env('WHATSAPP_APP_SECRET'),
     ],
 
+    'webpush' => [
+        'vapid_public_key' => env('WEBPUSH_VAPID_PUBLIC_KEY'),
+        'vapid_private_key' => env('WEBPUSH_VAPID_PRIVATE_KEY'),
+        'subject' => env('WEBPUSH_VAPID_SUBJECT', env('APP_URL')),
+    ],
+
 ];

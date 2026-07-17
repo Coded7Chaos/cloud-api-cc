@@ -6,8 +6,10 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -20,6 +22,13 @@ class ConversationVisibilityTest extends TestCase
     {
         parent::setUp();
         $this->seed(RoleSeeder::class);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     private static int $n = 0;
@@ -49,12 +58,24 @@ class ConversationVisibilityTest extends TestCase
 
     private function agent(): User
     {
-        return User::factory()->soporte()->create();
+        $agent = User::factory()->soporte()->create();
+        $this->scheduleAgent($agent);
+
+        return $agent;
     }
 
     private function admin(): User
     {
         return User::factory()->administrador()->create();
+    }
+
+    private function scheduleAgent(User $agent, ?Carbon $now = null): void
+    {
+        $now ??= now();
+
+        app(ScheduleService::class)->createSchedule($agent, [
+            ['weekday' => $now->dayOfWeekIso, 'start_time' => '00:00', 'end_time' => '23:59'],
+        ], $now->copy()->startOfMonth());
     }
 
     public function test_soporte_sees_only_unclaimed_and_own_conversations(): void
@@ -219,5 +240,26 @@ class ConversationVisibilityTest extends TestCase
             ->assertJsonPath('data.assignee', null);
 
         $this->assertNull($conversation->fresh()->assigned_user_id);
+    }
+
+    public function test_soporte_outside_working_hours_does_not_see_or_claim_unassigned_conversations(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 12, 0));
+        $agent = User::factory()->soporte()->create();
+        app(ScheduleService::class)->createSchedule($agent, [
+            ['weekday' => 1, 'start_time' => '08:00', 'end_time' => '09:00'],
+        ], Carbon::create(2026, 7, 1));
+        $unclaimed = $this->conversationWithInboundAt(now()->subMinutes(5), null);
+
+        $this->actingAs($agent);
+
+        $ids = collect($this->getJson('/api/conversations')->assertOk()->json('data'))->pluck('id');
+        $this->assertFalse($ids->contains($unclaimed->id));
+
+        $this->getJson("/api/conversations/{$unclaimed->id}")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Solo puedes tomar chats nuevos durante tu horario laboral.');
+
+        $this->assertNull($unclaimed->fresh()->assigned_user_id);
     }
 }

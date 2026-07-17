@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\PushSubscriptionController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\UserController;
@@ -39,6 +40,10 @@ Route::prefix('api')->group(function () {
     Route::middleware('auth')->group(function () {
         Route::get('/user', [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);
+
+        Route::get('/push/public-key', [PushSubscriptionController::class, 'publicKey']);
+        Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store']);
+        Route::delete('/push/subscriptions', [PushSubscriptionController::class, 'destroy']);
 
         // Catálogo de roles de solo lectura, para el selector del form de Usuarios.
         Route::get('/roles', [RoleController::class, 'index']);

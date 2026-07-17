@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -12,11 +13,20 @@ class PanelApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     public function test_panel_flow_end_to_end(): void
     {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 10, 0));
         $this->seed(DatabaseSeeder::class);
 
         $agent = User::where('email', 'agente@cc.test')->firstOrFail();
+        $support = User::where('email', 'soporte@cc.test')->firstOrFail();
 
         // Sin sesión, la API protegida responde 401 (no redirige).
         $this->getJson('/api/conversations')->assertUnauthorized();
@@ -63,7 +73,7 @@ class PanelApiTest extends TestCase
         $this->getJson('/api/schedules')->assertOk()->assertJsonStructure(['data']);
 
         // Actualizar el horario del agente (reemplazo total).
-        $this->putJson("/api/users/{$agent->id}/schedule", [
+        $this->putJson("/api/users/{$support->id}/schedule", [
             'shifts' => [
                 ['weekday' => 1, 'start_time' => '08:00', 'end_time' => '17:00'],
                 ['weekday' => 2, 'start_time' => '08:00', 'end_time' => '17:00'],

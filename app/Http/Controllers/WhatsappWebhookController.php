@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Contact;
+use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\ConversationAssignmentService;
+use App\Services\PushNotificationService;
 use App\Services\WhatsappService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -11,7 +14,11 @@ use Illuminate\Support\Facades\Log;
 
 class WhatsappWebhookController extends Controller
 {
-    public function __construct(private readonly WhatsappService $whatsapp) {}
+    public function __construct(
+        private readonly WhatsappService $whatsapp,
+        private readonly ConversationAssignmentService $assignment,
+        private readonly PushNotificationService $push,
+    ) {}
 
     /**
      * Verificación del webhook (handshake inicial de Meta).
@@ -111,8 +118,12 @@ class WhatsappWebhookController extends Controller
             ->where('status', '!=', 'closed')
             ->windowOpen()
             ->latest('last_message_at')
-            ->first()
-            ?? $contact->conversations()->create(['status' => 'open']);
+            ->first();
+
+        if (! $conversation) {
+            $conversation = $contact->conversations()->create(['status' => 'open']);
+            $this->assignment->assignNewConversation($conversation, now());
+        }
 
         $type = $payload['type'] ?? 'text';
 
@@ -129,6 +140,7 @@ class WhatsappWebhookController extends Controller
         ]);
 
         $conversation->update(['last_message_at' => now()]);
+        $this->notifyAssignee($conversation, $message);
 
         // Si trae media y todavía no la descargamos, la bajamos al storage privado.
         $mediaId = data_get($payload, "{$type}.id");
@@ -144,6 +156,30 @@ class WhatsappWebhookController extends Controller
                 ]);
             }
         }
+    }
+
+    private function notifyAssignee(Conversation $conversation, Message $message): void
+    {
+        $conversation->loadMissing('assignee', 'contact');
+
+        if (! $conversation->assignee) {
+            return;
+        }
+
+        $contactName = $conversation->contact->profile_name
+            ?: $conversation->contact->phone
+            ?: $conversation->contact->wa_id;
+
+        $this->push->sendToUser(
+            $conversation->assignee,
+            'Nuevo mensaje de WhatsApp',
+            $message->body ?: "Mensaje entrante de {$contactName}",
+            [
+                'conversation_id' => $conversation->id,
+                'url' => '/chats',
+                'contact' => $contactName,
+            ],
+        );
     }
 
     /**

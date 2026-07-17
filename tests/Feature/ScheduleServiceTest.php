@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Services\ScheduleService;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -90,5 +91,41 @@ class ScheduleServiceTest extends TestCase
 
         $this->assertCount(30, $month); // junio tiene 30 días
         $this->assertInstanceOf(Collection::class, $month['2026-06-01']);
+    }
+
+    public function test_working_hours_are_checked_against_the_active_shift(): void
+    {
+        $user = User::factory()->create();
+        $this->service->createSchedule($user, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->assertTrue($this->service->isWithinWorkingHoursAt($user, Carbon::create(2026, 7, 13, 9, 0)));
+        $this->assertTrue($this->service->isWithinWorkingHoursAt($user, Carbon::create(2026, 7, 13, 16, 59)));
+        $this->assertFalse($this->service->isWithinWorkingHoursAt($user, Carbon::create(2026, 7, 13, 17, 0)));
+        $this->assertFalse($this->service->isWithinWorkingHoursAt($user, Carbon::create(2026, 7, 14, 10, 0)));
+    }
+
+    public function test_notification_rule_requires_a_configured_active_shift(): void
+    {
+        $this->seed(RoleSeeder::class);
+        $userWithoutSchedule = User::factory()->soporte()->create();
+        $scheduledUser = User::factory()->soporte()->create();
+        $this->service->createSchedule($scheduledUser, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->assertFalse($this->service->canReceiveWorkNotificationsAt(
+            $userWithoutSchedule,
+            Carbon::create(2026, 7, 13, 10, 0),
+        ));
+        $this->assertTrue($this->service->canReceiveWorkNotificationsAt(
+            $scheduledUser,
+            Carbon::create(2026, 7, 13, 10, 0),
+        ));
+        $this->assertFalse($this->service->canReceiveWorkNotificationsAt(
+            $scheduledUser,
+            Carbon::create(2026, 7, 13, 18, 0),
+        ));
     }
 }

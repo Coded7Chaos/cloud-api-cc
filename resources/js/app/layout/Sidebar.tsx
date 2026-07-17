@@ -2,7 +2,7 @@ import { NavLink } from 'react-router';
 import { LogOut } from 'lucide-react';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { useAuth } from '../../lib/auth';
-import { navItems, initials } from './nav-items';
+import { visibleNavItems, initials } from './nav-items';
 
 export function Sidebar() {
     const { user, logout } = useAuth();
@@ -10,7 +10,7 @@ export function Sidebar() {
     return (
         <aside className="hidden md:flex w-16 shrink-0 bg-[#004479] text-white flex-col items-center py-5 gap-2 rounded-r-2xl">
             <nav className="flex-1 flex flex-col items-center gap-2 mt-4">
-                {navItems.map(({ to, label, icon: Icon }) => (
+                {visibleNavItems(user?.role?.name).map(({ to, label, icon: Icon }) => (
                     <NavLink
                         key={to}
                         to={to}

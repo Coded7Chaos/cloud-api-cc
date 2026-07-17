@@ -48,7 +48,7 @@ class DatabaseSeeder extends Seeder
         );
 
         // Cuenta de soporte con credenciales conocidas, fácil de usar a mano.
-        User::firstOrCreate(
+        $support = User::firstOrCreate(
             ['email' => 'soporte@cc.test'],
             [
                 'name' => 'Soporte',
@@ -117,8 +117,8 @@ class DatabaseSeeder extends Seeder
             $conversation->update(['last_message_at' => $clock]);
         }
 
-        // ── Horario vigente del agente principal (Lun–Sáb 09:00–18:00) ──────
-        $version = $agent->scheduleVersions()->create([
+        // ── Horario vigente del agente de soporte (Lun–Sáb 09:00–18:00) ─────
+        $version = $support->scheduleVersions()->create([
             'effective_from' => Carbon::now()->startOfMonth()->toDateString(),
         ]);
 

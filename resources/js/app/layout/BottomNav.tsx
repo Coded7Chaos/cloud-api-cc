@@ -1,10 +1,13 @@
 import { NavLink } from 'react-router';
-import { navItems } from './nav-items';
+import { useAuth } from '../../lib/auth';
+import { visibleNavItems } from './nav-items';
 
 export function BottomNav() {
+    const { user } = useAuth();
+
     return (
         <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#004479] text-white px-2 py-2 flex justify-around items-center shadow-[0_-4px_20px_rgba(0,0,0,0.15)]">
-            {navItems.map(({ to, label, icon: Icon }) => (
+            {visibleNavItems(user?.role?.name).map(({ to, label, icon: Icon }) => (
                 <NavLink
                     key={to}
                     to={to}

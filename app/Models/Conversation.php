@@ -84,7 +84,11 @@ class Conversation extends Model
         }
 
         return $query->where(function (Builder $q) use ($user) {
-            $q->whereNull('assigned_user_id')->orWhere('assigned_user_id', $user->id);
+            $q->where('assigned_user_id', $user->id);
+
+            if ($user->canReceiveNewChatsAt(now())) {
+                $q->orWhereNull('assigned_user_id');
+            }
         });
     }
 
@@ -127,6 +131,10 @@ class Conversation extends Model
 
         if ($this->assigned_user_id !== null && $this->assigned_user_id !== $user->id) {
             abort(404);
+        }
+
+        if ($this->assigned_user_id === null && ! $user->canReceiveNewChatsAt(now())) {
+            abort(403, 'Solo puedes tomar chats nuevos durante tu horario laboral.');
         }
 
         if ($this->assigned_user_id === null && $this->canSendFreeform()) {

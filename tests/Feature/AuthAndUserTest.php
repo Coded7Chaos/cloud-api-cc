@@ -4,13 +4,22 @@ namespace Tests\Feature;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class AuthAndUserTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
 
     public function test_guest_cannot_access_protected_api(): void
     {
@@ -25,6 +34,49 @@ class AuthAndUserTest extends TestCase
         $this->postJson('/api/login', ['email' => 'agente@cc.test', 'password' => 'secret123'])
             ->assertOk()
             ->assertJsonPath('user.email', 'agente@cc.test');
+    }
+
+    public function test_login_is_allowed_outside_configured_working_hours(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 8, 0));
+        $user = User::factory()->create(['email' => 'agente@cc.test', 'password' => 'secret123']);
+        app(ScheduleService::class)->createSchedule($user, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->postJson('/api/login', ['email' => 'agente@cc.test', 'password' => 'secret123'])
+            ->assertOk()
+            ->assertJsonPath('user.email', 'agente@cc.test');
+    }
+
+    public function test_login_is_allowed_inside_configured_working_hours(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 10, 0));
+        $user = User::factory()->create(['email' => 'agente@cc.test', 'password' => 'secret123']);
+        app(ScheduleService::class)->createSchedule($user, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->postJson('/api/login', ['email' => 'agente@cc.test', 'password' => 'secret123'])
+            ->assertOk()
+            ->assertJsonPath('user.email', 'agente@cc.test');
+    }
+
+    public function test_authenticated_api_is_allowed_outside_configured_working_hours(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 8, 0));
+        $user = User::factory()->create();
+        app(ScheduleService::class)->createSchedule($user, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->actingAs($user);
+
+        $this->getJson('/api/user')
+            ->assertOk()
+            ->assertJsonPath('user.id', $user->id);
+
+        $this->postJson('/api/logout')->assertOk();
     }
 
     public function test_login_with_wrong_password_fails_validation(): void
@@ -93,5 +145,23 @@ class AuthAndUserTest extends TestCase
         // Elimina a otro -> soft delete (queda en la base con deleted_at).
         $this->deleteJson("/api/users/{$other->id}")->assertNoContent();
         $this->assertSoftDeleted('users', ['id' => $other->id]);
+    }
+
+    public function test_support_role_cannot_access_user_management_api(): void
+    {
+        $this->seed(RoleSeeder::class);
+        $support = User::factory()->soporte()->create();
+
+        $this->actingAs($support);
+
+        $this->getJson('/api/users')->assertForbidden();
+        $this->postJson('/api/users', [
+            'name' => 'No',
+            'last_name' => 'Debe',
+            'email' => 'nodebe@cc.test',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
+            'role_id' => Role::where('name', 'soporte')->value('id'),
+        ])->assertForbidden();
     }
 }

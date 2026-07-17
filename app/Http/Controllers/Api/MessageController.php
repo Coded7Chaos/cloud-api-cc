@@ -9,7 +9,9 @@ use App\Services\WhatsappService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Envío de mensajes salientes desde el panel.
@@ -34,10 +36,20 @@ class MessageController extends Controller
         }
 
         $data = $request->validate([
-            'body' => ['required', 'string', 'max:4096'],
+            'body' => ['nullable', 'string', 'max:1024'],
+            'media' => ['nullable', 'file', 'max:16384', 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/3gpp'],
         ]);
 
+        if (! $request->filled('body') && ! $request->hasFile('media')) {
+            throw ValidationException::withMessages([
+                'body' => ['Escribe un mensaje o adjunta una imagen/video.'],
+            ]);
+        }
+
         $conversation->loadMissing('contact');
+        $file = $request->file('media');
+        $type = $file ? Str::of((string) $file->getMimeType())->before('/')->value() : 'text';
+        $body = trim((string) ($data['body'] ?? ''));
 
         // 1) Guardamos primero como "pending" para no perder el mensaje aunque
         //    el envío a Meta falle. wa_message_id provisional hasta tener el wamid.
@@ -45,16 +57,35 @@ class MessageController extends Controller
             'conversation_id' => $conversation->id,
             'wa_message_id' => 'local-'.Str::uuid(),
             'direction' => 'outbound',
-            'type' => 'text',
-            'body' => $data['body'],
+            'type' => $type,
+            'body' => $body !== '' ? $body : null,
             'status' => 'pending',
             'sender_user_id' => $user->id,
             'sent_at' => now(),
         ]);
 
+        if ($file) {
+            $path = $file->store('whatsapp/outbound', 'local');
+            $message->media()->create([
+                'disk' => 'local',
+                'storage_path' => $path,
+                'mime_type' => $file->getMimeType(),
+                'original_filename' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+                'sha256' => hash_file('sha256', Storage::disk('local')->path($path)),
+            ]);
+        }
+
         // 2) Entrega real a la Cloud API.
         try {
-            $response = $this->whatsapp->sendText($conversation->contact->wa_id, $data['body']);
+            if ($file) {
+                $upload = $this->whatsapp->uploadMedia($file);
+                $mediaId = (string) data_get($upload, 'id');
+                $response = $this->whatsapp->sendMedia($conversation->contact->wa_id, $type, $mediaId, $message->body);
+                $message->media()->update(['wa_media_id' => $mediaId]);
+            } else {
+                $response = $this->whatsapp->sendText($conversation->contact->wa_id, $body);
+            }
 
             $message->update([
                 'wa_message_id' => data_get($response, 'messages.0.id', $message->wa_message_id),
@@ -71,6 +102,7 @@ class MessageController extends Controller
         }
 
         $conversation->update(['last_message_at' => $message->sent_at]);
+        $message->load('media');
 
         return response()->json([
             'data' => [
@@ -81,6 +113,13 @@ class MessageController extends Controller
                 'status' => $message->fresh()->status,
                 'sent_at' => $message->sent_at,
                 'created_at' => $message->created_at,
+                'media' => $message->media->map(fn ($media) => [
+                    'id' => $media->id,
+                    'url' => $media->url(),
+                    'mime_type' => $media->mime_type,
+                    'original_filename' => $media->original_filename,
+                    'size' => $media->size,
+                ])->values(),
                 'sender' => ['id' => $user->id, 'name' => $user->name],
             ],
         ], 201);

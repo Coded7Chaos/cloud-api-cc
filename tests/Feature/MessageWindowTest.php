@@ -6,9 +6,12 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -38,6 +41,9 @@ class MessageWindowTest extends TestCase
     {
         $this->seed(RoleSeeder::class);
         $agent = User::factory()->soporte()->create();
+        app(ScheduleService::class)->createSchedule($agent, [
+            ['weekday' => now()->dayOfWeekIso, 'start_time' => '00:00', 'end_time' => '23:59'],
+        ], now()->copy()->startOfMonth());
         $this->actingAs($agent);
 
         return $agent;
@@ -92,5 +98,65 @@ class MessageWindowTest extends TestCase
 
         $this->postJson("/api/conversations/{$conversation->id}/messages", ['body' => 'Ahora sí puedo'])
             ->assertCreated();
+    }
+
+    public function test_can_send_image_with_optional_caption(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'MEDIA_IMAGE_1'], 200)
+            ->push(['messages' => [['id' => 'wamid.IMAGE1']]], 200);
+
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'body' => 'Mira esta imagen',
+            'media' => UploadedFile::fake()->image('foto.jpg', 800, 600),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'image')
+            ->assertJsonPath('data.status', 'sent');
+
+        $this->assertDatabaseHas('messages', [
+            'wa_message_id' => 'wamid.IMAGE1',
+            'direction' => 'outbound',
+            'type' => 'image',
+            'body' => 'Mira esta imagen',
+        ]);
+        $this->assertDatabaseHas('message_media', [
+            'mime_type' => 'image/jpeg',
+            'wa_media_id' => 'MEDIA_IMAGE_1',
+        ]);
+    }
+
+    public function test_can_send_video_with_optional_caption(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'MEDIA_VIDEO_1'], 200)
+            ->push(['messages' => [['id' => 'wamid.VIDEO1']]], 200);
+
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'body' => 'Mira este video',
+            'media' => UploadedFile::fake()->create('video.mp4', 1024, 'video/mp4'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'video')
+            ->assertJsonPath('data.status', 'sent');
+
+        $this->assertDatabaseHas('messages', [
+            'wa_message_id' => 'wamid.VIDEO1',
+            'direction' => 'outbound',
+            'type' => 'video',
+            'body' => 'Mira este video',
+        ]);
+        $this->assertDatabaseHas('message_media', [
+            'mime_type' => 'video/mp4',
+            'wa_media_id' => 'MEDIA_VIDEO_1',
+        ]);
     }
 }

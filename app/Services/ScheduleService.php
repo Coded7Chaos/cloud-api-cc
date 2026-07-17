@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\ScheduleShift;
 use App\Models\ScheduleVersion;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -103,7 +105,7 @@ class ScheduleService
     /**
      * Los turnos reales de un día concreto, según la versión vigente ese día.
      *
-     * @return \Illuminate\Support\Collection<int, \App\Models\ScheduleShift>
+     * @return Collection<int, ScheduleShift>
      */
     public function shiftsForDate(User $user, Carbon $date)
     {
@@ -118,11 +120,67 @@ class ScheduleService
             ->values();
     }
 
+    /** Indica si el usuario ya tiene al menos un horario configurado. */
+    public function hasConfiguredSchedule(User $user): bool
+    {
+        return $user->scheduleVersions()->exists();
+    }
+
+    /** True si $at cae dentro de alguno de los turnos del usuario para ese día. */
+    public function isWithinWorkingHoursAt(User $user, ?Carbon $at = null): bool
+    {
+        $at ??= now();
+
+        return $this->shiftsForDate($user, $at)->contains(function ($shift) use ($at) {
+            $start = $at->copy()->setTimeFromTimeString(substr((string) $shift->start_time, 0, 5));
+            $end = $at->copy()->setTimeFromTimeString(substr((string) $shift->end_time, 0, 5));
+
+            return $at->greaterThanOrEqualTo($start) && $at->lessThan($end);
+        });
+    }
+
+    /**
+     * Regla de acceso al panel. Los usuarios sin horario aún pueden entrar
+     * para no bloquear cuentas existentes durante la carga inicial de turnos.
+     */
+    public function canAccessPlatformAt(User $user, ?Carbon $at = null): bool
+    {
+        return true;
+    }
+
+    /** Regla estricta para asignar chats nuevos a agentes de soporte. */
+    public function canReceiveNewChatsAt(User $user, ?Carbon $at = null): bool
+    {
+        return $user->hasRole('soporte')
+            && $this->hasConfiguredSchedule($user)
+            && $this->isWithinWorkingHoursAt($user, $at);
+    }
+
+    /** Alias de negocio: las notificaciones de chats nuevos siguen la asignación. */
+    public function canReceiveWorkNotificationsAt(User $user, ?Carbon $at = null): bool
+    {
+        return $this->canReceiveNewChatsAt($user, $at);
+    }
+
+    /** @return Collection<int, User> */
+    public function supportAgentsAvailableAt(?Carbon $at = null): Collection
+    {
+        $at ??= now();
+
+        return User::query()
+            ->whereHas('role', fn ($q) => $q->where('name', 'soporte'))
+            ->with(['role', 'scheduleVersions.shifts'])
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (User $user) => $this->canReceiveNewChatsAt($user, $at))
+            ->values();
+    }
+
     /**
      * Reconstruye el mes real: cada día con los turnos que de verdad aplicaron,
      * aunque a mitad de mes haya habido un cambio de versión.
      *
-     * @return array<string, \Illuminate\Support\Collection>
+     * @return array<string, Collection>
      */
     public function monthlySchedule(User $user, int $year, int $month): array
     {

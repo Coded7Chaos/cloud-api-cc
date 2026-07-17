@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -50,6 +51,49 @@ class WhatsappService
                 'to' => $to,
                 'type' => 'text',
                 'text' => ['preview_url' => false, 'body' => $body],
+            ])
+            ->throw()
+            ->json();
+    }
+
+    /**
+     * Sube una imagen o video a Meta y devuelve el media_id reutilizable para
+     * enviar el mensaje saliente.
+     *
+     * @return array<string, mixed>
+     */
+    public function uploadMedia(UploadedFile $file): array
+    {
+        return $this->client()
+            ->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
+            ->post("/{$this->phoneNumberId}/media", [
+                'messaging_product' => 'whatsapp',
+                'type' => $file->getMimeType(),
+            ])
+            ->throw()
+            ->json();
+    }
+
+    /**
+     * Envía una media ya subida por media_id. $type debe ser image o video.
+     *
+     * @return array<string, mixed>
+     */
+    public function sendMedia(string $to, string $type, string $mediaId, ?string $caption = null): array
+    {
+        $media = ['id' => $mediaId];
+
+        if ($caption !== null && $caption !== '') {
+            $media['caption'] = $caption;
+        }
+
+        return $this->client()
+            ->post("/{$this->phoneNumberId}/messages", [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => 'individual',
+                'to' => $to,
+                'type' => $type,
+                $type => $media,
             ])
             ->throw()
             ->json();

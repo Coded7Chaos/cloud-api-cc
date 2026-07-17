@@ -12,6 +12,7 @@ export default function LoginPage() {
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [remember, setRemember] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [message] = useState<string | null>((location.state as { message?: string } | null)?.message ?? null);
     const [loading, setLoading] = useState(false);
@@ -21,7 +22,7 @@ export default function LoginPage() {
         setError(null);
         setLoading(true);
         try {
-            await login(email, password);
+            await login(email, password, remember);
             navigate('/chats', { replace: true });
         } catch (err) {
             if (axios.isAxiosError(err) && err.response?.status === 422) {
@@ -90,6 +91,16 @@ export default function LoginPage() {
                     {error && (
                         <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{error}</div>
                     )}
+
+                    <label className="flex items-center gap-2 text-sm text-[#004479]">
+                        <input
+                            type="checkbox"
+                            checked={remember}
+                            onChange={(e) => setRemember(e.target.checked)}
+                            className="h-4 w-4 accent-[#004479]"
+                        />
+                        Mantener sesión iniciada
+                    </label>
 
                     <Button
                         type="submit"

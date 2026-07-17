@@ -22,6 +22,7 @@ class ScheduleController extends Controller
     public function index(): JsonResponse
     {
         $users = User::query()
+            ->whereHas('role', fn ($q) => $q->where('name', 'soporte'))
             ->orderBy('name')
             ->with(['scheduleVersions' => function ($q) {
                 $q->whereNull('effective_to')->with(['shifts' => fn ($s) => $s->orderBy('weekday')->orderBy('start_time')]);
@@ -58,6 +59,12 @@ class ScheduleController extends Controller
     /** Reemplaza los turnos del horario vigente de un usuario. */
     public function update(Request $request, User $user): JsonResponse
     {
+        if (! $user->hasRole('soporte')) {
+            return response()->json([
+                'message' => 'Solo se pueden asignar horarios a agentes de soporte.',
+            ], 422);
+        }
+
         $data = $request->validate([
             'shifts' => ['present', 'array'],
             'shifts.*.weekday' => ['required', 'integer', 'between:1,7'],

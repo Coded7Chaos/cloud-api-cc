@@ -5,7 +5,11 @@ namespace Tests\Feature;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\User;
+use App\Services\ScheduleService;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -14,6 +18,13 @@ use Tests\TestCase;
 class WhatsappWebhookTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
 
     /** Payload de un mensaje entrante de texto, tal como lo manda Meta. */
     private function inboundTextPayload(string $waId, string $wamid, string $body): array
@@ -31,6 +42,37 @@ class WhatsappWebhookTest extends TestCase
                             'timestamp' => '1782757600',
                             'type' => 'text',
                             'text' => ['body' => $body],
+                        ]],
+                    ],
+                ]],
+            ]],
+        ];
+    }
+
+    /** Payload de una media entrante de WhatsApp, con caption opcional. */
+    private function inboundMediaPayload(
+        string $waId,
+        string $wamid,
+        string $type,
+        string $mediaId,
+        ?string $caption = null,
+    ): array {
+        return [
+            'object' => 'whatsapp_business_account',
+            'entry' => [[
+                'changes' => [[
+                    'field' => 'messages',
+                    'value' => [
+                        'contacts' => [['profile' => ['name' => 'Media User'], 'wa_id' => $waId]],
+                        'messages' => [[
+                            'from' => $waId,
+                            'id' => $wamid,
+                            'timestamp' => '1782757600',
+                            'type' => $type,
+                            $type => array_filter([
+                                'id' => $mediaId,
+                                'caption' => $caption,
+                            ]),
                         ]],
                     ],
                 ]],
@@ -67,6 +109,39 @@ class WhatsappWebhookTest extends TestCase
             'direction' => 'inbound',
             'body' => 'Hola, una consulta',
         ]);
+    }
+
+    public function test_new_inbound_chat_is_assigned_to_support_agent_in_working_hours(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 10, 0));
+        $this->seed(RoleSeeder::class);
+        $agent = User::factory()->soporte()->create();
+        app(ScheduleService::class)->createSchedule($agent, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000020', 'wamid.ASSIGN', 'Hola'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('conversations', [
+            'assigned_user_id' => $agent->id,
+        ]);
+    }
+
+    public function test_new_inbound_chat_is_not_assigned_to_agents_outside_working_hours(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 7, 13, 18, 0));
+        $this->seed(RoleSeeder::class);
+        $agent = User::factory()->soporte()->create();
+        app(ScheduleService::class)->createSchedule($agent, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], Carbon::create(2026, 7, 1));
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000021', 'wamid.NOASSIGN', 'Hola'))
+            ->assertOk();
+
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000021'))->firstOrFail();
+        $this->assertNull($conversation->assigned_user_id);
     }
 
     public function test_message_after_the_24h_window_closed_starts_a_new_conversation(): void
@@ -203,5 +278,88 @@ class WhatsappWebhookTest extends TestCase
         $this->assertSame('image/jpeg', $media->mime_type);
         $this->assertSame('MEDIA123', $media->wa_media_id);
         Storage::disk('local')->assertExists($media->storage_path);
+    }
+
+    public function test_inbound_image_is_returned_with_media_url_in_conversation_detail(): void
+    {
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'url' => 'https://media.test/image.jpg',
+                'mime_type' => 'image/jpeg',
+                'sha256' => 'image-hash',
+                'file_size' => 2048,
+            ], 200),
+            'media.test/*' => Http::response('IMAGE-BINARY', 200),
+        ]);
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundMediaPayload(
+            '59170000030',
+            'wamid.IMG_DETAIL',
+            'image',
+            'MEDIA_IMG_DETAIL',
+            'foto entrante',
+        ))->assertOk();
+
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000030'))->firstOrFail();
+
+        $this->seed(RoleSeeder::class);
+        $this->actingAs(User::factory()->administrador()->create());
+
+        $this->getJson("/api/conversations/{$conversation->id}")
+            ->assertOk()
+            ->assertJsonPath('data.messages.0.type', 'image')
+            ->assertJsonPath('data.messages.0.body', 'foto entrante')
+            ->assertJsonPath('data.messages.0.media.0.mime_type', 'image/jpeg')
+            ->assertJsonPath('data.messages.0.media.0.original_filename', null)
+            ->assertJsonPath('data.messages.0.media.0.size', 2048)
+            ->assertJson(fn ($json) => $json
+                ->where('data.messages.0.media.0.id', fn ($id) => is_int($id))
+                ->where('data.messages.0.media.0.url', fn ($url) => is_string($url) && str_contains($url, '/media/'))
+                ->etc());
+    }
+
+    public function test_inbound_video_is_downloaded_and_returned_with_media_url(): void
+    {
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'url' => 'https://media.test/video.mp4',
+                'mime_type' => 'video/mp4',
+                'sha256' => 'video-hash',
+                'file_size' => 4096,
+            ], 200),
+            'media.test/*' => Http::response('VIDEO-BINARY', 200),
+        ]);
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundMediaPayload(
+            '59170000031',
+            'wamid.VID_DETAIL',
+            'video',
+            'MEDIA_VID_DETAIL',
+            'video entrante',
+        ))->assertOk();
+
+        $message = Message::where('wa_message_id', 'wamid.VID_DETAIL')->firstOrFail();
+        $this->assertSame('video', $message->type);
+        $this->assertSame('video entrante', $message->body);
+
+        $media = $message->media()->firstOrFail();
+        $this->assertSame('video/mp4', $media->mime_type);
+        $this->assertSame('MEDIA_VID_DETAIL', $media->wa_media_id);
+        Storage::disk('local')->assertExists($media->storage_path);
+
+        $this->seed(RoleSeeder::class);
+        $this->actingAs(User::factory()->administrador()->create());
+
+        $this->getJson("/api/conversations/{$message->conversation_id}")
+            ->assertOk()
+            ->assertJsonPath('data.messages.0.type', 'video')
+            ->assertJsonPath('data.messages.0.media.0.mime_type', 'video/mp4')
+            ->assertJson(fn ($json) => $json
+                ->where('data.messages.0.media.0.url', fn ($url) => is_string($url) && str_contains($url, '/media/'))
+                ->etc());
     }
 }

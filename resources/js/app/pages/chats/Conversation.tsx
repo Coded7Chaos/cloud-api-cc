@@ -1,7 +1,7 @@
 import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User, Lock } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
-import { shortTime, type ConversationDetail } from './types';
+import { shortTime, type ChatMessage, type ConversationDetail } from './types';
 
 type Props = {
     conversation: ConversationDetail | null;
@@ -9,22 +9,25 @@ type Props = {
     sending: boolean;
     onBack: () => void;
     onOpenProfile: () => void;
-    onSend: (body: string) => void;
+    onSend: (body: string, media?: File | null) => Promise<void>;
 };
 
 export function Conversation({ conversation, loading, sending, onBack, onOpenProfile, onSend }: Props) {
     const [input, setInput] = useState('');
+    const [media, setMedia] = useState<File | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation?.messages.length]);
 
-    const submit = () => {
+    const submit = async () => {
         const body = input.trim();
-        if (!body) return;
-        onSend(body);
+        if (!body && !media) return;
+        await onSend(body, media);
         setInput('');
+        setMedia(null);
     };
 
     if (!conversation) {
@@ -83,7 +86,8 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                                         : 'bg-white border border-black/5 text-foreground rounded-bl-sm'
                                 }`}
                             >
-                                <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                                <MessageMedia message={m} />
+                                {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
                                 <span
                                     className={`block text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-muted-foreground'}`}
                                 >
@@ -99,27 +103,48 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
 
             <div className="px-3 md:px-5 py-3 border-t border-black/5 bg-white">
                 {conversation.can_send ? (
-                    <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-3 py-2">
-                        <button className="text-[#004479] hover:opacity-70">
-                            <Smile size={18} />
-                        </button>
-                        <button className="text-[#004479] hover:opacity-70">
-                            <Paperclip size={18} />
-                        </button>
-                        <input
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), submit())}
-                            placeholder="Escribe un mensaje..."
-                            className="flex-1 bg-transparent outline-none text-sm px-1"
-                        />
-                        <button
-                            onClick={submit}
-                            disabled={sending || !input.trim()}
-                            className="w-9 h-9 rounded-full bg-[#FFCC00] text-[#004479] flex items-center justify-center hover:brightness-95 transition disabled:opacity-50"
-                        >
-                            <Send size={16} />
-                        </button>
+                    <div className="space-y-2">
+                        {media && (
+                            <div className="flex items-center justify-between gap-2 rounded-lg bg-[#f4f6f9] px-3 py-2 text-xs text-[#004479]">
+                                <span className="truncate">{media.name}</span>
+                                <button onClick={() => setMedia(null)} className="text-muted-foreground hover:text-destructive">
+                                    Quitar
+                                </button>
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-3 py-2">
+                            <button className="text-[#004479] hover:opacity-70">
+                                <Smile size={18} />
+                            </button>
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="text-[#004479] hover:opacity-70"
+                                title="Adjuntar imagen o video"
+                            >
+                                <Paperclip size={18} />
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp"
+                                className="hidden"
+                                onChange={(e) => setMedia(e.target.files?.[0] ?? null)}
+                            />
+                            <input
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), submit())}
+                                placeholder={media ? 'Agrega un caption...' : 'Escribe un mensaje...'}
+                                className="flex-1 bg-transparent outline-none text-sm px-1"
+                            />
+                            <button
+                                onClick={submit}
+                                disabled={sending || (!input.trim() && !media)}
+                                className="w-9 h-9 rounded-full bg-[#FFCC00] text-[#004479] flex items-center justify-center hover:brightness-95 transition disabled:opacity-50"
+                            >
+                                <Send size={16} />
+                            </button>
+                        </div>
                     </div>
                 ) : (
                     <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-4 py-2.5 text-xs text-muted-foreground">
@@ -128,6 +153,39 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+function MessageMedia({ message }: { message: ChatMessage }) {
+    if (!message.media.length) return null;
+
+    return (
+        <div className={message.body ? 'mb-2' : ''}>
+            {message.media.map((media) => {
+                if (media.mime_type?.startsWith('image/')) {
+                    return (
+                        <img
+                            key={media.id}
+                            src={media.url}
+                            alt={media.original_filename ?? 'Imagen adjunta'}
+                            className="max-h-72 rounded-xl object-contain"
+                        />
+                    );
+                }
+
+                if (media.mime_type?.startsWith('video/')) {
+                    return (
+                        <video key={media.id} src={media.url} controls className="max-h-72 rounded-xl" />
+                    );
+                }
+
+                return (
+                    <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="underline">
+                        {media.original_filename ?? 'Archivo adjunto'}
+                    </a>
+                );
+            })}
         </div>
     );
 }

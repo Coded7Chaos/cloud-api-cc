@@ -24,6 +24,12 @@ function RequireAuth() {
     return <Outlet />;
 }
 
+function RequireAdmin() {
+    const { user } = useAuth();
+    if (user?.role?.name !== 'administrador') return <Navigate to="/chats" replace />;
+    return <Outlet />;
+}
+
 export default function App() {
     const { user, loading } = useAuth();
 
@@ -40,8 +46,10 @@ export default function App() {
                 <Route element={<AppLayout />}>
                     <Route index element={<Navigate to="/chats" replace />} />
                     <Route path="/chats" element={<ChatsPage />} />
-                    <Route path="/usuarios" element={<UsuariosPage />} />
-                    <Route path="/horarios" element={<HorariosPage />} />
+                    <Route element={<RequireAdmin />}>
+                        <Route path="/usuarios" element={<UsuariosPage />} />
+                        <Route path="/horarios" element={<HorariosPage />} />
+                    </Route>
                 </Route>
             </Route>
 

@@ -26,7 +26,7 @@ class RoleSeeder extends Seeder
             'conversaciones.ver', 'conversaciones.responder',
             'horarios.ver', 'horarios.editar',
         ],
-        'soporte' => ['conversaciones.ver', 'conversaciones.responder', 'horarios.ver'],
+        'soporte' => ['conversaciones.ver', 'conversaciones.responder'],
     ];
 
     public function run(): void

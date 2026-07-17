@@ -63,6 +63,7 @@ class ConversationController extends Controller
             'latestInboundMessage',
             'messages' => fn ($q) => $q->orderBy('created_at'),
             'messages.sender:id,name,last_name',
+            'messages.media',
         ]);
 
         return response()->json([
@@ -75,6 +76,13 @@ class ConversationController extends Controller
                     'status' => $m->status,
                     'sent_at' => $m->sent_at,
                     'created_at' => $m->created_at,
+                    'media' => $m->media->map(fn ($media) => [
+                        'id' => $media->id,
+                        'url' => $media->url(),
+                        'mime_type' => $media->mime_type,
+                        'original_filename' => $media->original_filename,
+                        'size' => $media->size,
+                    ])->values(),
                     'sender' => $m->sender ? [
                         'id' => $m->sender->id,
                         'name' => $m->sender->name,

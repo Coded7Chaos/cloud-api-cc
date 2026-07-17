@@ -6,6 +6,13 @@ export type ChatMessage = {
     status: string | null;
     sent_at: string | null;
     created_at: string;
+    media: {
+        id: number;
+        url: string;
+        mime_type: string | null;
+        original_filename: string | null;
+        size: number | null;
+    }[];
     sender: { id: number; name: string } | null;
 };
 

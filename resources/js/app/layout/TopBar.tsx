@@ -11,8 +11,10 @@ import {
 } from '../components/ui/dropdown-menu';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { subscribeToPushNotifications } from '../../lib/push';
 import { initials } from './nav-items';
 import type { ConversationSummary } from '../pages/chats/types';
+import { toast } from 'sonner';
 
 // Poll propio para el badge de la campana: TopBar es hermano de <Outlet/> en
 // AppLayout (no padre/hijo de ChatsPage), así que no puede leer su estado
@@ -26,6 +28,7 @@ export function TopBar() {
     const fullName = [user?.name, user?.last_name].filter(Boolean).join(' ');
     const isSoporte = user?.role?.name === 'soporte';
     const [unclaimedCount, setUnclaimedCount] = useState(0);
+    const [enablingPush, setEnablingPush] = useState(false);
 
     useEffect(() => {
         if (!isSoporte) return;
@@ -49,6 +52,18 @@ export function TopBar() {
         };
     }, [isSoporte]);
 
+    const enablePush = async () => {
+        setEnablingPush(true);
+        try {
+            await subscribeToPushNotifications();
+            toast.success('Notificaciones activadas en este dispositivo.');
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'No se pudieron activar las notificaciones.');
+        } finally {
+            setEnablingPush(false);
+        }
+    };
+
     return (
         <header className="flex items-center gap-3 md:gap-6 px-4 md:px-8 py-3 bg-[#004479] text-white">
             <div className="flex items-center gap-2">
@@ -67,7 +82,12 @@ export function TopBar() {
                 />
             </div>
 
-            <button className="relative p-2 rounded-full hover:bg-white/10 transition">
+            <button
+                onClick={enablePush}
+                disabled={enablingPush}
+                title="Activar notificaciones"
+                className="relative p-2 rounded-full hover:bg-white/10 transition disabled:opacity-60"
+            >
                 <Bell size={18} />
                 {isSoporte && unclaimedCount > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 bg-[#FFCC00] text-[#004479] text-[10px] rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center font-semibold">
