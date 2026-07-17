@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password as PasswordBroker;
@@ -17,6 +19,8 @@ use Illuminate\Validation\ValidationException;
  */
 class PasswordResetController extends Controller
 {
+    public function __construct(private readonly AuditLogService $audit) {}
+
     /** Pide el link de recuperación por correo. */
     public function sendResetLink(Request $request): JsonResponse
     {
@@ -28,6 +32,17 @@ class PasswordResetController extends Controller
         // si no existe, no hace nada. Respondemos siempre el mismo mensaje
         // genérico para no revelar qué correos están registrados.
         PasswordBroker::sendResetLink(['email' => $data['email']]);
+        $user = User::query()->where('email', $data['email'])->first();
+
+        if ($user) {
+            $this->audit->record(
+                'usuarios',
+                'recuperacion_solicitada',
+                "Solicitó recuperación de contraseña para {$user->email}.",
+                null,
+                $user,
+            );
+        }
 
         return response()->json([
             'message' => 'Si el correo está registrado, te enviamos un enlace para restablecer tu contraseña.',
@@ -54,6 +69,17 @@ class PasswordResetController extends Controller
             throw ValidationException::withMessages([
                 'email' => [__($status)],
             ]);
+        }
+
+        $user = User::query()->where('email', $data['email'])->first();
+        if ($user) {
+            $this->audit->record(
+                'usuarios',
+                'contrasena_recuperada',
+                "Restableció la contraseña de {$user->email} mediante enlace de recuperación.",
+                null,
+                $user,
+            );
         }
 
         return response()->json([

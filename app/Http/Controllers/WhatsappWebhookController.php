@@ -6,6 +6,7 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\ConversationAssignmentService;
+use App\Services\ConversationPresenceService;
 use App\Services\PushNotificationService;
 use App\Services\WhatsappService;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ class WhatsappWebhookController extends Controller
         private readonly WhatsappService $whatsapp,
         private readonly ConversationAssignmentService $assignment,
         private readonly PushNotificationService $push,
+        private readonly ConversationPresenceService $presence,
     ) {}
 
     /**
@@ -163,6 +165,10 @@ class WhatsappWebhookController extends Controller
         $conversation->loadMissing('assignee', 'contact');
 
         if (! $conversation->assignee) {
+            return;
+        }
+
+        if ($this->presence->isViewing($conversation, $conversation->assignee)) {
             return;
         }
 

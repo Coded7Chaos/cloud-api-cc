@@ -2,11 +2,13 @@ import { Navigate, Outlet, Route, Routes } from 'react-router';
 import { useAuth } from '../lib/auth';
 import { AppLayout } from './layout/AppLayout';
 import LoginPage from './pages/LoginPage';
+import AcceptInvitationPage from './pages/AcceptInvitationPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import ChatsPage from './pages/ChatsPage';
 import UsuariosPage from './pages/UsuariosPage';
 import HorariosPage from './pages/HorariosPage';
+import AuditoriaPage from './pages/AuditoriaPage';
 
 function FullScreenLoader() {
     return (
@@ -39,6 +41,7 @@ export default function App() {
                 path="/login"
                 element={loading ? <FullScreenLoader /> : user ? <Navigate to="/chats" replace /> : <LoginPage />}
             />
+            <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
 
@@ -49,6 +52,7 @@ export default function App() {
                     <Route element={<RequireAdmin />}>
                         <Route path="/usuarios" element={<UsuariosPage />} />
                         <Route path="/horarios" element={<HorariosPage />} />
+                        <Route path="/auditoria" element={<AuditoriaPage />} />
                     </Route>
                 </Route>
             </Route>

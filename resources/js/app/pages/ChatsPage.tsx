@@ -47,7 +47,9 @@ export default function ChatsPage() {
         if (!silent) setLoadingDetail(true);
         try {
             const res = await api.get(`/conversations/${id}`);
-            setDetail(res.data.data);
+            const data: ConversationDetail = res.data.data;
+            setDetail(data);
+            setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unread_count: data.unread_count } : c)));
         } catch (err) {
             const status = axios.isAxiosError(err) ? err.response?.status : null;
             if (status === 409) {

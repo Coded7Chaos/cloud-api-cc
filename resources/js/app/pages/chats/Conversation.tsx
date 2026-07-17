@@ -1,7 +1,9 @@
-import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User, Lock } from 'lucide-react';
+import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User, Lock, Clock, Check, CheckCheck, CircleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { shortTime, type ChatMessage, type ConversationDetail } from './types';
+
+const EMOJIS = ['😀', '😃', '😄', '😁', '😊', '🙂', '😉', '😍', '😘', '😎', '🥳', '😅', '😂', '🤣', '😢', '😮', '👍', '👏', '🙌', '🙏', '💪', '👌', '✅', '❌', '⭐', '🔥', '❤️', '💛', '💙', '🎉', '📌', '⏰'];
 
 type Props = {
     conversation: ConversationDetail | null;
@@ -15,12 +17,36 @@ type Props = {
 export function Conversation({ conversation, loading, sending, onBack, onOpenProfile, onSend }: Props) {
     const [input, setInput] = useState('');
     const [media, setMedia] = useState<File | null>(null);
+    const [emojiOpen, setEmojiOpen] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const emojiPickerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation?.messages.length]);
+
+    useEffect(() => {
+        if (!emojiOpen) return;
+
+        const close = (event: MouseEvent) => {
+            if (emojiPickerRef.current?.contains(event.target as Node)) return;
+            setEmojiOpen(false);
+        };
+
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setEmojiOpen(false);
+        };
+
+        document.addEventListener('mousedown', close);
+        document.addEventListener('keydown', closeOnEscape);
+
+        return () => {
+            document.removeEventListener('mousedown', close);
+            document.removeEventListener('keydown', closeOnEscape);
+        };
+    }, [emojiOpen]);
 
     const submit = async () => {
         const body = input.trim();
@@ -28,6 +54,21 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
         await onSend(body, media);
         setInput('');
         setMedia(null);
+        setEmojiOpen(false);
+    };
+
+    const insertEmoji = (emoji: string) => {
+        const inputEl = inputRef.current;
+        const start = inputEl?.selectionStart ?? input.length;
+        const end = inputEl?.selectionEnd ?? input.length;
+        const nextValue = `${input.slice(0, start)}${emoji}${input.slice(end)}`;
+        const nextCaret = start + emoji.length;
+
+        setInput(nextValue);
+        requestAnimationFrame(() => {
+            inputEl?.focus();
+            inputEl?.setSelectionRange(nextCaret, nextCaret);
+        });
     };
 
     if (!conversation) {
@@ -52,9 +93,6 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                             {conversation.contact.name[0]?.toUpperCase()}
                         </AvatarFallback>
                     </Avatar>
-                    {conversation.status === 'open' && (
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#FFCC00] ring-2 ring-white" />
-                    )}
                 </div>
                 <div className="flex-1 min-w-0">
                     <p className="text-sm truncate text-[#004479] font-semibold">{conversation.contact.name}</p>
@@ -88,12 +126,7 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                             >
                                 <MessageMedia message={m} />
                                 {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
-                                <span
-                                    className={`block text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-muted-foreground'}`}
-                                >
-                                    {shortTime(m.sent_at ?? m.created_at)}
-                                    {mine && m.status ? ` · ${m.status}` : ''}
-                                </span>
+                                <MessageMeta message={m} mine={mine} />
                             </div>
                         </div>
                     );
@@ -113,10 +146,35 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                             </div>
                         )}
                         <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-3 py-2">
-                            <button className="text-[#004479] hover:opacity-70">
-                                <Smile size={18} />
-                            </button>
+                            <div ref={emojiPickerRef} className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setEmojiOpen((current) => !current)}
+                                    className="text-[#004479] hover:opacity-70"
+                                    title="Insertar emoji"
+                                    aria-label="Insertar emoji"
+                                >
+                                    <Smile size={18} />
+                                </button>
+                                {emojiOpen && (
+                                    <div className="absolute bottom-9 left-0 z-20 w-64 rounded-xl border border-black/10 bg-white p-2 shadow-xl">
+                                        <div className="grid grid-cols-8 gap-1">
+                                            {EMOJIS.map((emoji) => (
+                                                <button
+                                                    key={emoji}
+                                                    type="button"
+                                                    onClick={() => insertEmoji(emoji)}
+                                                    className="h-7 rounded-md text-base hover:bg-[#004479]/10"
+                                                >
+                                                    {emoji}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                             <button
+                                type="button"
                                 onClick={() => fileInputRef.current?.click()}
                                 className="text-[#004479] hover:opacity-70"
                                 title="Adjuntar imagen o video"
@@ -131,6 +189,7 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                                 onChange={(e) => setMedia(e.target.files?.[0] ?? null)}
                             />
                             <input
+                                ref={inputRef}
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), submit())}
@@ -138,6 +197,7 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                                 className="flex-1 bg-transparent outline-none text-sm px-1"
                             />
                             <button
+                                type="button"
                                 onClick={submit}
                                 disabled={sending || (!input.trim() && !media)}
                                 className="w-9 h-9 rounded-full bg-[#FFCC00] text-[#004479] flex items-center justify-center hover:brightness-95 transition disabled:opacity-50"
@@ -155,6 +215,51 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
             </div>
         </div>
     );
+}
+
+function MessageMeta({ message, mine }: { message: ChatMessage; mine: boolean }) {
+    const status = mine ? messageStatus(message.status) : null;
+    const Icon = status?.icon;
+
+    return (
+        <span
+            className={`mt-1 flex items-center gap-1 text-[10px] ${
+                status?.tone === 'error'
+                    ? 'text-red-300'
+                    : status?.tone === 'read'
+                      ? 'text-sky-200'
+                      : mine
+                        ? 'text-white/70'
+                        : 'text-muted-foreground'
+            }`}
+        >
+            <span>{shortTime(message.sent_at ?? message.created_at)}</span>
+            {status && Icon && (
+                <>
+                    <span>·</span>
+                    <Icon size={12} />
+                    <span>{status.label}</span>
+                </>
+            )}
+        </span>
+    );
+}
+
+function messageStatus(status: string | null) {
+    switch (status) {
+        case 'pending':
+            return { label: 'Pendiente', icon: Clock, tone: 'muted' as const };
+        case 'sent':
+            return { label: 'Enviado', icon: Check, tone: 'muted' as const };
+        case 'delivered':
+            return { label: 'Entregado', icon: CheckCheck, tone: 'muted' as const };
+        case 'read':
+            return { label: 'Leído', icon: CheckCheck, tone: 'read' as const };
+        case 'failed':
+            return { label: 'Error', icon: CircleAlert, tone: 'error' as const };
+        default:
+            return status ? { label: status, icon: Check, tone: 'muted' as const } : null;
+    }
 }
 
 function MessageMedia({ message }: { message: ChatMessage }) {

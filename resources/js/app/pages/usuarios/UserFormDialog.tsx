@@ -13,6 +13,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { PasswordInput } from '../../components/ui/password-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 
 export type PanelUser = {
@@ -103,23 +104,25 @@ export function UserFormDialog({ open, user, onOpenChange, onSaved }: Props) {
                     <DialogDescription>
                         {isEdit
                             ? 'Modifica los datos del agente. Deja la contraseña vacía para no cambiarla.'
-                            : 'Crea un nuevo agente para el panel.'}
+                            : 'Ingresa el correo del agente. Le enviaremos una invitación para crear su contraseña.'}
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={submit} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                            <Label htmlFor="name">Nombre</Label>
-                            <Input id="name" value={form.name} onChange={(e) => set('name', e.target.value)} />
-                            {fieldError('name') && <p className="text-xs text-destructive">{fieldError('name')}</p>}
+                    {isEdit && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="name">Nombre</Label>
+                                <Input id="name" value={form.name} onChange={(e) => set('name', e.target.value)} />
+                                {fieldError('name') && <p className="text-xs text-destructive">{fieldError('name')}</p>}
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="last_name">Apellido</Label>
+                                <Input id="last_name" value={form.last_name} onChange={(e) => set('last_name', e.target.value)} />
+                                {fieldError('last_name') && <p className="text-xs text-destructive">{fieldError('last_name')}</p>}
+                            </div>
                         </div>
-                        <div className="space-y-1.5">
-                            <Label htmlFor="last_name">Apellido</Label>
-                            <Input id="last_name" value={form.last_name} onChange={(e) => set('last_name', e.target.value)} />
-                            {fieldError('last_name') && <p className="text-xs text-destructive">{fieldError('last_name')}</p>}
-                        </div>
-                    </div>
+                    )}
 
                     <div className="space-y-1.5">
                         <Label htmlFor="email">Correo electrónico</Label>
@@ -127,52 +130,59 @@ export function UserFormDialog({ open, user, onOpenChange, onSaved }: Props) {
                         {fieldError('email') && <p className="text-xs text-destructive">{fieldError('email')}</p>}
                     </div>
 
-                    <div className="space-y-1.5">
-                        <Label htmlFor="role_id">Rol</Label>
-                        <Select value={form.role_id} onValueChange={(value) => set('role_id', value)}>
-                            <SelectTrigger id="role_id">
-                                <SelectValue placeholder="Selecciona un rol" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {roles.map((r) => (
-                                    <SelectItem key={r.id} value={String(r.id)}>
-                                        {r.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        {fieldError('role_id') && <p className="text-xs text-destructive">{fieldError('role_id')}</p>}
-                    </div>
+                    {isEdit && (
+                        <>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="role_id">Rol</Label>
+                                <Select value={form.role_id} onValueChange={(value) => set('role_id', value)}>
+                                    <SelectTrigger id="role_id">
+                                        <SelectValue placeholder="Selecciona un rol" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {roles.map((r) => (
+                                            <SelectItem key={r.id} value={String(r.id)}>
+                                                {r.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {fieldError('role_id') && <p className="text-xs text-destructive">{fieldError('role_id')}</p>}
+                            </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                            <Label htmlFor="password">Contraseña</Label>
-                            <Input
-                                id="password"
-                                type="password"
-                                value={form.password}
-                                onChange={(e) => set('password', e.target.value)}
-                                placeholder={isEdit ? 'Sin cambios' : ''}
-                            />
-                            {fieldError('password') && <p className="text-xs text-destructive">{fieldError('password')}</p>}
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label htmlFor="password_confirmation">Confirmar</Label>
-                            <Input
-                                id="password_confirmation"
-                                type="password"
-                                value={form.password_confirmation}
-                                onChange={(e) => set('password_confirmation', e.target.value)}
-                            />
-                        </div>
-                    </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="password">Contraseña</Label>
+                                    <PasswordInput
+                                        id="password"
+                                        value={form.password}
+                                        onChange={(e) => set('password', e.target.value)}
+                                        autoComplete="new-password"
+                                        placeholder="Sin cambios"
+                                    />
+                                    {fieldError('password') && <p className="text-xs text-destructive">{fieldError('password')}</p>}
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="password_confirmation">Confirmar</Label>
+                                    <PasswordInput
+                                        id="password_confirmation"
+                                        value={form.password_confirmation}
+                                        onChange={(e) => set('password_confirmation', e.target.value)}
+                                        autoComplete="new-password"
+                                    />
+                                </div>
+                            </div>
+                            <div className="text-xs text-muted-foreground bg-muted/60 rounded-md px-3 py-2">
+                                La contraseña debe tener mínimo 8 caracteres, al menos una letra, un número y un símbolo.
+                            </div>
+                        </>
+                    )}
 
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancelar
                         </Button>
                         <Button type="submit" disabled={saving} className="bg-[#004479] hover:bg-[#00305a]">
-                            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear usuario'}
+                            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Enviar invitación'}
                         </Button>
                     </DialogFooter>
                 </form>

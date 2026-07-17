@@ -1,4 +1,4 @@
-import { MessageCircle, Users, CalendarClock, type LucideIcon } from 'lucide-react';
+import { MessageCircle, Users, CalendarClock, ClipboardList, type LucideIcon } from 'lucide-react';
 
 export type NavItem = {
     to: string;
@@ -13,6 +13,7 @@ export const navItems: NavItem[] = [
     { to: '/chats', label: 'Chats', icon: MessageCircle, roles: ['administrador', 'soporte'] },
     { to: '/usuarios', label: 'Usuarios', icon: Users, roles: ['administrador'] },
     { to: '/horarios', label: 'Horarios', icon: CalendarClock, roles: ['administrador'] },
+    { to: '/auditoria', label: 'Auditoría', icon: ClipboardList, roles: ['administrador'] },
 ];
 
 export function visibleNavItems(roleName?: string | null): NavItem[] {

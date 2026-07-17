@@ -1,4 +1,5 @@
-import { Phone, Hash, X, UserCheck, MessageSquare } from 'lucide-react';
+import { Phone, X, UserCheck, MessageSquare } from 'lucide-react';
+import { useAuth } from '../../../lib/auth';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import type { ConversationDetail } from './types';
 
@@ -8,13 +9,17 @@ type Props = {
 };
 
 export function ProfilePanel({ conversation, onClose }: Props) {
+    const { user } = useAuth();
+    const isAdmin = user?.role?.name === 'administrador';
+
     if (!conversation) {
         return <div className="hidden lg:block h-full bg-white rounded-2xl" />;
     }
 
-    const { contact, assignee, messages, status } = conversation;
+    const { contact, assignee, messages } = conversation;
     const inbound = messages.filter((m) => m.direction === 'inbound').length;
     const outbound = messages.length - inbound;
+    const attendedBy = outbound > 0 && assignee ? assignee.name : 'Sin asignar';
 
     return (
         <div className="flex flex-col h-full bg-white rounded-2xl overflow-hidden">
@@ -35,15 +40,6 @@ export function ProfilePanel({ conversation, onClose }: Props) {
             <div className="pt-10 px-5 pb-4 text-center">
                 <p className="text-[#004479] font-semibold">{contact.name}</p>
                 <p className="text-xs text-muted-foreground">Contacto de WhatsApp</p>
-                <span
-                    className={`inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full ${
-                        status === 'open'
-                            ? 'bg-[#FFCC00]/30 text-[#004479]'
-                            : 'bg-black/5 text-muted-foreground'
-                    }`}
-                >
-                    {status}
-                </span>
             </div>
 
             <div className="px-5 pb-5 space-y-3 border-t border-black/5 pt-4">
@@ -51,20 +47,19 @@ export function ProfilePanel({ conversation, onClose }: Props) {
                     <div className="w-8 h-8 rounded-lg bg-[#FFCC00]/30 text-[#004479] flex items-center justify-center">
                         <Phone size={14} />
                     </div>
-                    <span>{contact.phone ?? '—'}</span>
+                    <span className="truncate">{contact.phone ?? contact.wa_id}</span>
                 </div>
-                <div className="flex items-center gap-3 text-sm">
-                    <div className="w-8 h-8 rounded-lg bg-[#FFCC00]/30 text-[#004479] flex items-center justify-center">
-                        <Hash size={14} />
+                {isAdmin && (
+                    <div className="flex items-center gap-3 text-sm">
+                        <div className="w-8 h-8 rounded-lg bg-[#FFCC00]/30 text-[#004479] flex items-center justify-center">
+                            <UserCheck size={14} />
+                        </div>
+                        <span className="min-w-0">
+                            <span className="text-muted-foreground">Atendido por: </span>
+                            <span>{attendedBy}</span>
+                        </span>
                     </div>
-                    <span className="truncate">{contact.wa_id}</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                    <div className="w-8 h-8 rounded-lg bg-[#FFCC00]/30 text-[#004479] flex items-center justify-center">
-                        <UserCheck size={14} />
-                    </div>
-                    <span>{assignee ? assignee.name : 'Sin asignar'}</span>
-                </div>
+                )}
             </div>
 
             <div className="px-5 pb-5">

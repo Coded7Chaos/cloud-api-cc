@@ -5,6 +5,14 @@ import { api } from '../../lib/api';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '../components/ui/dialog';
 import { UserFormDialog, type PanelUser } from './usuarios/UserFormDialog';
 import { initials } from '../layout/nav-items';
 
@@ -13,6 +21,8 @@ export default function UsuariosPage() {
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<PanelUser | null>(null);
+    const [deleting, setDeleting] = useState<PanelUser | null>(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -35,14 +45,18 @@ export default function UsuariosPage() {
         setDialogOpen(true);
     };
 
-    const remove = async (user: PanelUser) => {
-        if (!window.confirm(`¿Eliminar a ${user.name} ${user.last_name}?`)) return;
+    const confirmDelete = async () => {
+        if (!deleting) return;
+        setDeleteLoading(true);
         try {
-            await api.delete(`/users/${user.id}`);
+            await api.delete(`/users/${deleting.id}`);
             toast.success('Usuario eliminado.');
-            setUsers((prev) => prev.filter((u) => u.id !== user.id));
+            setUsers((prev) => prev.filter((u) => u.id !== deleting.id));
+            setDeleting(null);
         } catch {
             toast.error('No se pudo eliminar el usuario.');
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -105,7 +119,7 @@ export default function UsuariosPage() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                onClick={() => remove(u)}
+                                                onClick={() => setDeleting(u)}
                                                 title="Eliminar"
                                                 className="text-destructive hover:text-destructive"
                                             >
@@ -121,6 +135,29 @@ export default function UsuariosPage() {
             </div>
 
             <UserFormDialog open={dialogOpen} user={editing} onOpenChange={setDialogOpen} onSaved={load} />
+
+            <Dialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Eliminar usuario</DialogTitle>
+                        <DialogDescription>
+                            Esta acción eliminará el acceso de{' '}
+                            <span className="font-medium text-foreground">
+                                {deleting ? `${deleting.name} ${deleting.last_name}` : 'este usuario'}
+                            </span>{' '}
+                            al panel. No se puede deshacer desde esta pantalla.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleting(null)} disabled={deleteLoading}>
+                            Cancelar
+                        </Button>
+                        <Button variant="destructive" onClick={confirmDelete} disabled={deleteLoading}>
+                            {deleteLoading ? 'Eliminando…' : 'Eliminar'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

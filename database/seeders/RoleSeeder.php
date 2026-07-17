@@ -18,6 +18,7 @@ class RoleSeeder extends Seeder
         'conversaciones.responder' => 'Enviar mensajes salientes en un chat',
         'horarios.ver' => 'Ver los horarios de los agentes',
         'horarios.editar' => 'Editar los turnos de horario de un agente',
+        'auditoria.ver' => 'Ver registros de auditoría del panel',
     ];
 
     private const ROLE_PERMISSIONS = [
@@ -25,6 +26,7 @@ class RoleSeeder extends Seeder
             'usuarios.ver', 'usuarios.crear', 'usuarios.editar', 'usuarios.eliminar',
             'conversaciones.ver', 'conversaciones.responder',
             'horarios.ver', 'horarios.editar',
+            'auditoria.ver',
         ],
         'soporte' => ['conversaciones.ver', 'conversaciones.responder'],
     ];

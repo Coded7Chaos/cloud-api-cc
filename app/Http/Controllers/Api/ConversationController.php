@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
+use App\Models\User;
+use App\Services\ConversationPresenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -12,25 +14,29 @@ use Illuminate\Http\Request;
  */
 class ConversationController extends Controller
 {
+    public function __construct(private readonly ConversationPresenceService $presence) {}
+
     /**
      * Bandeja ordenada por última actividad. Administrador ve todo; soporte
      * solo lo suyo o lo que todavía nadie tomó. ?archived=1 trae los chats
      * cuya ventana de 24h ya cerró (en vez de los activos); combinado con
-     * ?date=YYYY-MM-DD, solo los archivados registrados ese día (cada chat
-     * queda fijo en la fecha en la que se creó -- un mismo contacto que
-     * escribe en dos fechas distintas separadas por más de 24h genera dos
-     * conversaciones separadas, no una sola que se "reabre").
+     * ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD, filtra por fecha de registro
+     * del chat. `date=YYYY-MM-DD` sigue aceptado como compatibilidad para un
+     * solo día. Cada chat queda fijo en la fecha en la que se creó.
      */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
         $archived = $request->boolean('archived');
-        $date = $archived ? $request->date('date') : null;
+        $singleDate = $archived ? $request->date('date') : null;
+        $dateFrom = $archived ? ($request->date('date_from') ?? $singleDate) : null;
+        $dateTo = $archived ? ($request->date('date_to') ?? $singleDate) : null;
 
         $conversations = Conversation::query()
             ->visibleTo($user)
             ->when($archived, fn ($q) => $q->windowClosed(), fn ($q) => $q->windowOpen())
-            ->when($date, fn ($q) => $q->whereDate('created_at', $date))
+            ->when($dateFrom, fn ($q) => $q->whereDate('created_at', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate('created_at', '<=', $dateTo))
             ->with(['contact', 'assignee:id,name,last_name', 'latestMessage', 'latestInboundMessage'])
             ->withCount(['messages as unread_count' => function ($q) {
                 // Entrantes sin leer = entrantes cuyo estado no es "read".
@@ -55,7 +61,10 @@ class ConversationController extends Controller
     /** Un hilo con todos sus mensajes en orden cronológico. */
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
-        $conversation->authorizeAndClaimFor($request->user());
+        $user = $request->user();
+
+        $conversation->authorizeAndClaimFor($user);
+        $this->markAsReadIfAssignedViewer($conversation, $user);
 
         $conversation->load([
             'contact',
@@ -90,6 +99,24 @@ class ConversationController extends Controller
                 ])->values(),
             ]),
         ]);
+    }
+
+    private function markAsReadIfAssignedViewer(Conversation $conversation, User $user): void
+    {
+        if ($conversation->assigned_user_id !== $user->id) {
+            return;
+        }
+
+        $this->presence->markViewing($conversation, $user);
+
+        $conversation->messages()
+            ->where('direction', 'inbound')
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', 'read');
+            })
+            ->update(['status' => 'read']);
+
+        $conversation->setAttribute('unread_count', 0);
     }
 
     /** Forma común de una conversación para la bandeja y el detalle. */

@@ -166,6 +166,49 @@ class ConversationVisibilityTest extends TestCase
         $this->getJson("/api/conversations/{$conversation->id}")->assertNotFound();
     }
 
+    public function test_assigned_soporte_opening_conversation_marks_inbound_messages_as_read(): void
+    {
+        $agent = $this->agent();
+        $conversation = $this->conversationWithInboundAt(now()->subMinutes(5), $agent->id);
+
+        $this->actingAs($agent);
+
+        $before = collect($this->getJson('/api/conversations')->assertOk()->json('data'))
+            ->firstWhere('id', $conversation->id);
+        $this->assertSame(1, $before['unread_count']);
+
+        $this->getJson("/api/conversations/{$conversation->id}")
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 0)
+            ->assertJsonPath('data.messages.0.status', 'read');
+
+        $after = collect($this->getJson('/api/conversations')->assertOk()->json('data'))
+            ->firstWhere('id', $conversation->id);
+        $this->assertSame(0, $after['unread_count']);
+    }
+
+    public function test_admin_opening_assigned_conversation_does_not_clear_agent_unread_count(): void
+    {
+        $agent = $this->agent();
+        $admin = $this->admin();
+        $conversation = $this->conversationWithInboundAt(now()->subMinutes(5), $agent->id);
+
+        $this->actingAs($admin);
+        $this->getJson("/api/conversations/{$conversation->id}")->assertOk();
+
+        $this->assertDatabaseHas('messages', [
+            'conversation_id' => $conversation->id,
+            'direction' => 'inbound',
+            'status' => 'delivered',
+        ]);
+
+        $this->actingAs($agent);
+        $summary = collect($this->getJson('/api/conversations')->assertOk()->json('data'))
+            ->firstWhere('id', $conversation->id);
+
+        $this->assertSame(1, $summary['unread_count']);
+    }
+
     public function test_soporte_cannot_send_to_a_conversation_assigned_to_someone_else(): void
     {
         $agentA = $this->agent();
@@ -198,7 +241,7 @@ class ConversationVisibilityTest extends TestCase
         $this->assertFalse($archivedIds->contains($active->id));
     }
 
-    public function test_archived_list_can_be_filtered_by_registration_date(): void
+    public function test_archived_list_can_be_filtered_by_registration_date_range(): void
     {
         $agent = $this->agent();
 
@@ -208,25 +251,30 @@ class ConversationVisibilityTest extends TestCase
         $fromJuly = $this->conversationWithInboundAt(now()->subDays(10), $agent->id);
         $fromJuly->forceFill(['created_at' => '2026-07-12 15:00:00'])->save();
 
+        $fromAugust = $this->conversationWithInboundAt(now()->subDays(5), $agent->id);
+        $fromAugust->forceFill(['created_at' => '2026-08-02 09:00:00'])->save();
+
         $this->actingAs($agent);
 
-        $juneOnly = collect(
+        $range = collect(
+            $this->getJson('/api/conversations?archived=1&date_from=2026-07-01&date_to=2026-07-31')->assertOk()->json('data'),
+        )->pluck('id');
+        $this->assertFalse($range->contains($fromJune->id));
+        $this->assertTrue($range->contains($fromJuly->id));
+        $this->assertFalse($range->contains($fromAugust->id));
+
+        // Compatibilidad con el filtro anterior de un solo día.
+        $singleDay = collect(
             $this->getJson('/api/conversations?archived=1&date=2026-06-20')->assertOk()->json('data'),
         )->pluck('id');
-        $this->assertTrue($juneOnly->contains($fromJune->id));
-        $this->assertFalse($juneOnly->contains($fromJuly->id));
-
-        $julyOnly = collect(
-            $this->getJson('/api/conversations?archived=1&date=2026-07-12')->assertOk()->json('data'),
-        )->pluck('id');
-        $this->assertTrue($julyOnly->contains($fromJuly->id));
-        $this->assertFalse($julyOnly->contains($fromJune->id));
+        $this->assertTrue($singleDay->contains($fromJune->id));
+        $this->assertFalse($singleDay->contains($fromJuly->id));
 
         // Sin filtro de fecha, aparecen los dos archivados.
         $both = collect(
             $this->getJson('/api/conversations?archived=1')->assertOk()->json('data'),
         )->pluck('id');
-        $this->assertTrue($both->contains($fromJune->id) && $both->contains($fromJuly->id));
+        $this->assertTrue($both->contains($fromJune->id) && $both->contains($fromJuly->id) && $both->contains($fromAugust->id));
     }
 
     public function test_viewing_an_unclaimed_expired_conversation_does_not_assign_it(): void

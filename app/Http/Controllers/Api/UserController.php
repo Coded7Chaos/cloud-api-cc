@@ -3,9 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Role;
 use App\Models\User;
+use App\Notifications\UserInvitationNotification;
+use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Password as PasswordBroker;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
@@ -14,6 +19,8 @@ use Illuminate\Validation\Rules\Password;
  */
 class UserController extends Controller
 {
+    public function __construct(private readonly AuditLogService $audit) {}
+
     /** Lista de usuarios para la pantalla "Usuarios". */
     public function index(): JsonResponse
     {
@@ -29,25 +36,42 @@ class UserController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
-            'password' => ['required', 'confirmed', Password::defaults()],
-            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
         ]);
 
-        // password se castea a "hashed" en el modelo, así que se guarda cifrado.
-        $data['email_verified_at'] = now();
-        $user = User::create($data);
+        $emailPrefix = Str::of($data['email'])->before('@')->replace(['.', '_', '-'], ' ')->title()->value();
+        $supportRoleId = Role::where('name', 'soporte')->value('id');
+
+        $user = User::create([
+            'name' => $emailPrefix ?: $data['email'],
+            'last_name' => '',
+            'email' => $data['email'],
+            'password' => null,
+            'role_id' => $supportRoleId,
+        ]);
+
+        $token = PasswordBroker::createToken($user);
+        $user->notify(new UserInvitationNotification($token));
+        $this->audit->record(
+            'usuarios',
+            'usuario_creado',
+            "Creó el usuario {$user->email} y envió una invitación.",
+            $request->user(),
+            $user,
+            ['role' => 'soporte'],
+        );
 
         return response()->json([
             'data' => $user->only(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at', 'role_id']),
+            'message' => 'Usuario creado. Enviamos una invitación para establecer su contraseña.',
         ], 201);
     }
 
     /** Actualiza un usuario. La contraseña es opcional. */
     public function update(Request $request, User $user): JsonResponse
     {
+        $before = $user->only(['name', 'last_name', 'email', 'role_id']);
+
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -61,6 +85,28 @@ class UserController extends Controller
         }
 
         $user->update($data);
+        $changes = collect($user->getChanges())->except(['updated_at', 'password', 'remember_token'])->keys()->values()->all();
+
+        if ($changes !== []) {
+            $this->audit->record(
+                'usuarios',
+                'usuario_editado',
+                "Editó el usuario {$user->email}.",
+                $request->user(),
+                $user,
+                ['fields' => $changes, 'before' => $before, 'after' => $user->only(['name', 'last_name', 'email', 'role_id'])],
+            );
+        }
+
+        if (array_key_exists('password', $data)) {
+            $this->audit->record(
+                'usuarios',
+                'contrasena_cambiada',
+                "Cambió la contraseña de {$user->email}.",
+                $request->user(),
+                $user,
+            );
+        }
 
         return response()->json([
             'data' => $user->only(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at', 'role_id']),
@@ -74,6 +120,14 @@ class UserController extends Controller
         if ($request->user()->is($user)) {
             return response()->json(['message' => 'No puedes eliminar tu propia cuenta.'], 422);
         }
+
+        $this->audit->record(
+            'usuarios',
+            'usuario_eliminado',
+            "Eliminó el usuario {$user->email}.",
+            $request->user(),
+            $user,
+        );
 
         $user->delete();
 

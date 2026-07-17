@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\ConversationController;
+use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PushSubscriptionController;
@@ -36,6 +38,10 @@ Route::prefix('api')->group(function () {
         ->middleware('throttle:6,1');
     Route::post('/reset-password', [PasswordResetController::class, 'reset'])
         ->middleware('throttle:6,1');
+    Route::get('/invitations/status', [InvitationController::class, 'status'])
+        ->middleware('throttle:12,1');
+    Route::post('/invitations/accept', [InvitationController::class, 'accept'])
+        ->middleware('throttle:6,1');
 
     Route::middleware('auth')->group(function () {
         Route::get('/user', [AuthController::class, 'me']);
@@ -66,6 +72,9 @@ Route::prefix('api')->group(function () {
             ->middleware('permission:horarios.ver');
         Route::put('/users/{user}/schedule', [ScheduleController::class, 'update'])
             ->middleware('permission:horarios.editar');
+
+        Route::get('/audit-logs', [AuditLogController::class, 'index'])
+            ->middleware('permission:auditoria.ver');
     });
 });
 

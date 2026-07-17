@@ -24,13 +24,20 @@ export function ChatList({ conversations, archivedCount, selectedId, loading, on
     const [mode, setMode] = useState<'active' | 'archived'>('active');
     const [archived, setArchived] = useState<ConversationSummary[]>([]);
     const [loadingArchived, setLoadingArchived] = useState(false);
-    // Fecha de registro para filtrar archivados (YYYY-MM-DD, vacío = todas).
-    const [archivedDate, setArchivedDate] = useState('');
+    // Rango de fecha de registro para filtrar archivados (YYYY-MM-DD, vacío = todas).
+    const [archivedDateFrom, setArchivedDateFrom] = useState('');
+    const [archivedDateTo, setArchivedDateTo] = useState('');
 
-    const loadArchived = useCallback(async (date: string) => {
+    const loadArchived = useCallback(async (dateFrom: string, dateTo: string) => {
         setLoadingArchived(true);
         try {
-            const res = await api.get('/conversations', { params: { archived: 1, date: date || undefined } });
+            const res = await api.get('/conversations', {
+                params: {
+                    archived: 1,
+                    date_from: dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                },
+            });
             setArchived(res.data.data);
         } catch (err) {
             const msg = axios.isAxiosError(err) ? err.response?.data?.message : null;
@@ -42,14 +49,21 @@ export function ChatList({ conversations, archivedCount, selectedId, loading, on
 
     const openArchived = useCallback(() => {
         setMode('archived');
-        loadArchived(archivedDate);
-    }, [loadArchived, archivedDate]);
+        loadArchived(archivedDateFrom, archivedDateTo);
+    }, [loadArchived, archivedDateFrom, archivedDateTo]);
 
-    // Recarga cuando cambia la fecha, mientras se está mirando archivados.
+    // Recarga cuando cambia el rango, mientras se está mirando archivados.
     useEffect(() => {
-        if (mode === 'archived') loadArchived(archivedDate);
+        if (mode === 'archived') loadArchived(archivedDateFrom, archivedDateTo);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [archivedDate]);
+    }, [archivedDateFrom, archivedDateTo]);
+
+    const hasArchivedDateFilter = archivedDateFrom || archivedDateTo;
+
+    const clearArchivedDateFilter = () => {
+        setArchivedDateFrom('');
+        setArchivedDateTo('');
+    };
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -99,18 +113,31 @@ export function ChatList({ conversations, archivedCount, selectedId, loading, on
                             </button>
                             <h3 className="text-lg font-medium text-[#004479]">Chats archivados</h3>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="date"
-                                value={archivedDate}
-                                onChange={(e) => setArchivedDate(e.target.value)}
-                                aria-label="Filtrar por fecha de registro"
-                                className="flex-1 bg-[#f4f6f9] rounded-full px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#004479]/20"
-                            />
-                            {archivedDate && (
+                        <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+                            <label className="min-w-0">
+                                <span className="sr-only">Desde</span>
+                                <input
+                                    type="date"
+                                    value={archivedDateFrom}
+                                    onChange={(e) => setArchivedDateFrom(e.target.value)}
+                                    aria-label="Filtrar desde fecha de registro"
+                                    className="w-full bg-[#f4f6f9] rounded-full px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#004479]/20"
+                                />
+                            </label>
+                            <label className="min-w-0">
+                                <span className="sr-only">Hasta</span>
+                                <input
+                                    type="date"
+                                    value={archivedDateTo}
+                                    onChange={(e) => setArchivedDateTo(e.target.value)}
+                                    aria-label="Filtrar hasta fecha de registro"
+                                    className="w-full bg-[#f4f6f9] rounded-full px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#004479]/20"
+                                />
+                            </label>
+                            {hasArchivedDateFilter && (
                                 <button
-                                    onClick={() => setArchivedDate('')}
-                                    title="Quitar filtro de fecha"
+                                    onClick={clearArchivedDateFilter}
+                                    title="Quitar filtro de fechas"
                                     className="p-2 rounded-full hover:bg-black/5 text-muted-foreground"
                                 >
                                     <X size={14} />
@@ -146,9 +173,6 @@ export function ChatList({ conversations, archivedCount, selectedId, loading, on
                                         {c.contact.name[0]?.toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                {c.can_send && (
-                                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#FFCC00] ring-2 ring-white" />
-                                )}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">

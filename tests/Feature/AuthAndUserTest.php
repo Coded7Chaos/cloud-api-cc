@@ -4,10 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\UserInvitationNotification;
 use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password as PasswordBroker;
 use Tests\TestCase;
 
 class AuthAndUserTest extends TestCase
@@ -99,20 +103,20 @@ class AuthAndUserTest extends TestCase
 
     public function test_agent_can_be_created(): void
     {
+        Notification::fake();
         $this->seed(RoleSeeder::class);
         $this->actingAs(User::factory()->administrador()->create());
-        $soporteId = Role::where('name', 'soporte')->value('id');
 
         $this->postJson('/api/users', [
-            'name' => 'Nuevo',
-            'last_name' => 'Agente',
             'email' => 'nuevo@cc.test',
-            'password' => 'Password123',
-            'password_confirmation' => 'Password123',
-            'role_id' => $soporteId,
-        ])->assertCreated();
+        ])->assertCreated()
+            ->assertJsonPath('message', 'Usuario creado. Enviamos una invitación para establecer su contraseña.');
 
-        $this->assertDatabaseHas('users', ['email' => 'nuevo@cc.test', 'name' => 'Nuevo']);
+        $user = User::where('email', 'nuevo@cc.test')->firstOrFail();
+
+        $this->assertNull($user->password);
+        $this->assertSame(Role::where('name', 'soporte')->value('id'), $user->role_id);
+        Notification::assertSentTo($user, UserInvitationNotification::class);
     }
 
     public function test_creating_user_with_duplicate_email_fails(): void
@@ -120,16 +124,54 @@ class AuthAndUserTest extends TestCase
         $this->seed(RoleSeeder::class);
         $this->actingAs(User::factory()->administrador()->create());
         User::factory()->create(['email' => 'existe@cc.test']);
-        $soporteId = Role::where('name', 'soporte')->value('id');
 
         $this->postJson('/api/users', [
-            'name' => 'Otro',
-            'last_name' => 'Agente',
             'email' => 'existe@cc.test',
-            'password' => 'Password123',
-            'password_confirmation' => 'Password123',
-            'role_id' => $soporteId,
         ])->assertStatus(422)->assertJsonValidationErrors('email');
+    }
+
+    public function test_invited_user_can_set_initial_password(): void
+    {
+        $this->seed(RoleSeeder::class);
+        $user = User::factory()->soporte()->create([
+            'email' => 'invitado@cc.test',
+            'password' => null,
+            'email_verified_at' => null,
+        ]);
+        $token = PasswordBroker::createToken($user);
+
+        $this->getJson('/api/invitations/status?'.http_build_query([
+            'email' => $user->email,
+            'token' => $token,
+        ]))->assertOk()
+            ->assertJsonPath('status', 'pending');
+
+        $this->postJson('/api/invitations/accept', [
+            'email' => $user->email,
+            'token' => $token,
+            'password' => 'Valid123!',
+            'password_confirmation' => 'Valid123!',
+        ])->assertOk()
+            ->assertJsonPath('status', 'created');
+
+        $user->refresh();
+        $this->assertTrue(Hash::check('Valid123!', $user->password));
+        $this->assertNotNull($user->email_verified_at);
+
+        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'Valid123!'])
+            ->assertOk()
+            ->assertJsonPath('user.email', $user->email);
+    }
+
+    public function test_invitation_link_reports_already_set_when_password_exists(): void
+    {
+        $user = User::factory()->create(['email' => 'listo@cc.test', 'password' => 'secret123']);
+
+        $this->getJson('/api/invitations/status?'.http_build_query([
+            'email' => $user->email,
+            'token' => 'token-cualquiera',
+        ]))->assertOk()
+            ->assertJsonPath('status', 'already_set');
     }
 
     public function test_user_is_soft_deleted_and_cannot_delete_self(): void
@@ -156,12 +198,7 @@ class AuthAndUserTest extends TestCase
 
         $this->getJson('/api/users')->assertForbidden();
         $this->postJson('/api/users', [
-            'name' => 'No',
-            'last_name' => 'Debe',
             'email' => 'nodebe@cc.test',
-            'password' => 'Password123',
-            'password_confirmation' => 'Password123',
-            'role_id' => Role::where('name', 'soporte')->value('id'),
         ])->assertForbidden();
     }
 }

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { Lock, Mail } from 'lucide-react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
+import { PasswordInput } from '../components/ui/password-input';
 import { useAuth } from '../../lib/auth';
 
 export default function LoginPage() {
@@ -71,17 +72,16 @@ export default function LoginPage() {
                                 ¿Olvidaste tu contraseña?
                             </Link>
                         </div>
-                        <div className="relative mt-1.5">
-                            <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                                placeholder="••••••••"
-                                className="w-full bg-[#f4f6f9] rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#004479]/30"
-                            />
-                        </div>
+                        <PasswordInput
+                            wrapperClassName="mt-1.5"
+                            leftIcon={<Lock size={16} />}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            autoComplete="current-password"
+                            placeholder="••••••••"
+                            className="h-auto border-0 bg-[#f4f6f9] rounded-lg py-2.5 text-sm focus-visible:ring-[#004479]/30 focus-visible:ring-2 focus-visible:border-transparent"
+                        />
                     </div>
 
                     {message && (

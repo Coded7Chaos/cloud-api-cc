@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ScheduleVersion;
 use App\Models\User;
+use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\DB;
  */
 class ScheduleController extends Controller
 {
+    public function __construct(private readonly AuditLogService $audit) {}
+
     /** Todos los usuarios con su horario vigente y sus turnos. */
     public function index(): JsonResponse
     {
@@ -72,6 +75,8 @@ class ScheduleController extends Controller
             'shifts.*.end_time' => ['required', 'date_format:H:i', 'after:shifts.*.start_time'],
         ]);
 
+        $before = $this->currentShifts($user);
+
         DB::transaction(function () use ($user, $data) {
             // Versión vigente, o crear una nueva abierta a partir de hoy.
             $version = $user->scheduleVersions()->whereNull('effective_to')->first()
@@ -84,6 +89,72 @@ class ScheduleController extends Controller
             }
         });
 
+        $after = collect($data['shifts'])
+            ->map(fn ($shift) => $this->normalizeShift($shift))
+            ->values()
+            ->all();
+
+        $this->audit->record(
+            'horarios',
+            $this->scheduleAction($before, $after),
+            sprintf(
+                'Actualizó el horario de %s.',
+                $this->audit->name($user),
+            ),
+            $request->user(),
+            $user,
+            [
+                'before' => $before,
+                'after' => $after,
+                'added_count' => count(array_udiff($after, $before, fn ($a, $b) => $a <=> $b)),
+                'removed_count' => count(array_udiff($before, $after, fn ($a, $b) => $a <=> $b)),
+            ],
+        );
+
         return $this->index();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function currentShifts(User $user): array
+    {
+        $version = $user->scheduleVersions()
+            ->whereNull('effective_to')
+            ->with(['shifts' => fn ($q) => $q->orderBy('weekday')->orderBy('start_time')])
+            ->first();
+
+        return $version
+            ? $version->shifts->map(fn ($shift) => $this->normalizeShift([
+                'weekday' => $shift->weekday,
+                'start_time' => substr((string) $shift->start_time, 0, 5),
+                'end_time' => substr((string) $shift->end_time, 0, 5),
+            ]))->values()->all()
+            : [];
+    }
+
+    /**
+     * @param  array{weekday:int,start_time:string,end_time:string}  $shift
+     */
+    private function normalizeShift(array $shift): string
+    {
+        return "{$shift['weekday']} {$shift['start_time']}-{$shift['end_time']}";
+    }
+
+    /**
+     * @param  array<int, string>  $before
+     * @param  array<int, string>  $after
+     */
+    private function scheduleAction(array $before, array $after): string
+    {
+        if ($before === [] && $after !== []) {
+            return 'horario_creado';
+        }
+
+        if ($before !== [] && $after === []) {
+            return 'horario_eliminado';
+        }
+
+        return 'horario_actualizado';
     }
 }

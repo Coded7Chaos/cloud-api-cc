@@ -7,12 +7,14 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\ScheduleService;
+use App\Services\PushNotificationService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class WhatsappWebhookTest extends TestCase
@@ -207,24 +209,28 @@ class WhatsappWebhookTest extends TestCase
     {
         $contact = Contact::create(['wa_id' => '59170000003', 'profile_name' => 'Cliente']);
         $conversation = $contact->conversations()->create(['status' => 'open']);
-        $message = $conversation->messages()->create([
-            'wa_message_id' => 'wamid.OUT1',
-            'direction' => 'outbound',
-            'type' => 'text',
-            'body' => 'Respuesta',
-            'status' => 'sent',
-        ]);
+        foreach (['sent', 'delivered', 'read', 'failed'] as $status) {
+            $conversation->messages()->create([
+                'wa_message_id' => "wamid.{$status}",
+                'direction' => 'outbound',
+                'type' => 'text',
+                'body' => "Respuesta {$status}",
+                'status' => 'pending',
+            ]);
+        }
 
         $payload = [
             'entry' => [[
                 'changes' => [[
                     'value' => [
-                        'statuses' => [[
-                            'id' => 'wamid.OUT1',
-                            'status' => 'read',
-                            'timestamp' => '1782757700',
-                            'recipient_id' => '59170000003',
-                        ]],
+                        'statuses' => collect(['sent', 'delivered', 'read', 'failed'])
+                            ->map(fn (string $status) => [
+                                'id' => "wamid.{$status}",
+                                'status' => $status,
+                                'timestamp' => '1782757700',
+                                'recipient_id' => '59170000003',
+                            ])
+                            ->all(),
                     ],
                 ]],
             ]],
@@ -232,7 +238,84 @@ class WhatsappWebhookTest extends TestCase
 
         $this->postJson('/api/whatsapp/webhook', $payload)->assertOk();
 
-        $this->assertSame('read', $message->fresh()->status);
+        foreach (['sent', 'delivered', 'read', 'failed'] as $status) {
+            $this->assertDatabaseHas('messages', [
+                'wa_message_id' => "wamid.{$status}",
+                'status' => $status,
+            ]);
+        }
+    }
+
+    public function test_assigned_agent_is_push_notified_when_new_message_arrives_outside_open_chat(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $agent = User::factory()->soporte()->create();
+        $contact = Contact::create(['wa_id' => '59170000040', 'profile_name' => 'Cliente Push']);
+        $conversation = $contact->conversations()->create([
+            'assigned_user_id' => $agent->id,
+            'status' => 'open',
+            'last_message_at' => now()->subMinute(),
+        ]);
+        $conversation->messages()->create([
+            'wa_message_id' => 'wamid.PUSH_WINDOW',
+            'direction' => 'inbound',
+            'type' => 'text',
+            'body' => 'Mensaje anterior',
+            'status' => 'read',
+            'sent_at' => now()->subMinute(),
+        ]);
+
+        $this->mock(PushNotificationService::class, function (MockInterface $mock) use ($agent, $conversation) {
+            $mock->shouldReceive('sendToUser')
+                ->once()
+                ->withArgs(fn (User $user, string $title, string $body, array $data) => $user->is($agent)
+                    && $title === 'Nuevo mensaje de WhatsApp'
+                    && $body === 'Mensaje nuevo'
+                    && $data['conversation_id'] === $conversation->id);
+        });
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000040', 'wamid.PUSH_SENT', 'Mensaje nuevo'))
+            ->assertOk();
+    }
+
+    public function test_assigned_agent_is_not_push_notified_when_viewing_conversation(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $agent = User::factory()->soporte()->create();
+        $contact = Contact::create(['wa_id' => '59170000041', 'profile_name' => 'Cliente Activo']);
+        $conversation = $contact->conversations()->create([
+            'assigned_user_id' => $agent->id,
+            'status' => 'open',
+            'last_message_at' => now()->subMinute(),
+        ]);
+        $conversation->messages()->create([
+            'wa_message_id' => 'wamid.ACTIVE_WINDOW',
+            'direction' => 'inbound',
+            'type' => 'text',
+            'body' => 'Mensaje anterior',
+            'status' => 'delivered',
+            'sent_at' => now()->subMinute(),
+        ]);
+
+        $this->mock(PushNotificationService::class, function (MockInterface $mock) {
+            $mock->shouldNotReceive('sendToUser');
+        });
+
+        $this->actingAs($agent);
+        $this->getJson("/api/conversations/{$conversation->id}")
+            ->assertOk()
+            ->assertJsonPath('data.messages.0.status', 'read');
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000041', 'wamid.PUSH_SUPPRESSED', 'Mensaje mientras está abierto'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('messages', [
+            'wa_message_id' => 'wamid.PUSH_SUPPRESSED',
+            'conversation_id' => $conversation->id,
+            'status' => 'delivered',
+        ]);
     }
 
     public function test_inbound_media_is_downloaded_to_storage(): void
