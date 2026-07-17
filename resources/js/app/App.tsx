@@ -2,6 +2,8 @@ import { Navigate, Outlet, Route, Routes } from 'react-router';
 import { useAuth } from '../lib/auth';
 import { AppLayout } from './layout/AppLayout';
 import LoginPage from './pages/LoginPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import ChatsPage from './pages/ChatsPage';
 import UsuariosPage from './pages/UsuariosPage';
 import HorariosPage from './pages/HorariosPage';
@@ -31,6 +33,8 @@ export default function App() {
                 path="/login"
                 element={loading ? <FullScreenLoader /> : user ? <Navigate to="/chats" replace /> : <LoginPage />}
             />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             <Route element={<RequireAuth />}>
                 <Route element={<AppLayout />}>

@@ -17,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // esperan JSON devuelven 401 igual (no redirigen), gracias a la regla
         // shouldRenderJsonWhen de abajo.
         $middleware->redirectGuestsTo(fn () => '/login');
+
+        $middleware->alias([
+            'permission' => \App\Http\Middleware\EnsurePermission::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

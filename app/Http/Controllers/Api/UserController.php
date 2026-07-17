@@ -18,8 +18,9 @@ class UserController extends Controller
     public function index(): JsonResponse
     {
         $users = User::query()
+            ->with('role:id,name')
             ->orderBy('name')
-            ->get(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at']);
+            ->get(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at', 'role_id']);
 
         return response()->json(['data' => $users]);
     }
@@ -32,6 +33,7 @@ class UserController extends Controller
             'last_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'confirmed', Password::defaults()],
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
         ]);
 
         // password se castea a "hashed" en el modelo, así que se guarda cifrado.
@@ -39,7 +41,7 @@ class UserController extends Controller
         $user = User::create($data);
 
         return response()->json([
-            'data' => $user->only(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at']),
+            'data' => $user->only(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at', 'role_id']),
         ], 201);
     }
 
@@ -51,6 +53,7 @@ class UserController extends Controller
             'last_name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'password' => ['nullable', 'confirmed', Password::defaults()],
+            'role_id' => ['sometimes', 'required', 'integer', Rule::exists('roles', 'id')],
         ]);
 
         if (empty($data['password'])) {
@@ -60,7 +63,7 @@ class UserController extends Controller
         $user->update($data);
 
         return response()->json([
-            'data' => $user->only(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at']),
+            'data' => $user->only(['id', 'name', 'last_name', 'email', 'email_verified_at', 'created_at', 'role_id']),
         ]);
     }
 

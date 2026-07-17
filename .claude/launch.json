@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cloud-api-cc",
+      "runtimeExecutable": "composer",
+      "runtimeArgs": ["run", "dev"],
+      "port": 8000
+    }
+  ]
+}

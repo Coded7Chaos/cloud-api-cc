@@ -24,6 +24,15 @@ class MessageController extends Controller
 
     public function store(Request $request, Conversation $conversation): JsonResponse
     {
+        $user = $request->user();
+        $conversation->authorizeAndClaimFor($user);
+
+        if (! $conversation->canSendFreeform()) {
+            return response()->json([
+                'message' => 'Pasaron más de 24 horas desde el último mensaje del cliente. No se pueden enviar mensajes hasta que vuelva a escribir.',
+            ], 422);
+        }
+
         $data = $request->validate([
             'body' => ['required', 'string', 'max:4096'],
         ]);
@@ -39,7 +48,7 @@ class MessageController extends Controller
             'type' => 'text',
             'body' => $data['body'],
             'status' => 'pending',
-            'sender_user_id' => $request->user()->id,
+            'sender_user_id' => $user->id,
             'sent_at' => now(),
         ]);
 
@@ -72,7 +81,7 @@ class MessageController extends Controller
                 'status' => $message->fresh()->status,
                 'sent_at' => $message->sent_at,
                 'created_at' => $message->created_at,
-                'sender' => ['id' => $request->user()->id, 'name' => $request->user()->name],
+                'sender' => ['id' => $user->id, 'name' => $user->name],
             ],
         ], 201);
     }

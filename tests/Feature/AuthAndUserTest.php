@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -45,7 +47,9 @@ class AuthAndUserTest extends TestCase
 
     public function test_agent_can_be_created(): void
     {
-        $this->actingAs(User::factory()->create());
+        $this->seed(RoleSeeder::class);
+        $this->actingAs(User::factory()->administrador()->create());
+        $soporteId = Role::where('name', 'soporte')->value('id');
 
         $this->postJson('/api/users', [
             'name' => 'Nuevo',
@@ -53,6 +57,7 @@ class AuthAndUserTest extends TestCase
             'email' => 'nuevo@cc.test',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',
+            'role_id' => $soporteId,
         ])->assertCreated();
 
         $this->assertDatabaseHas('users', ['email' => 'nuevo@cc.test', 'name' => 'Nuevo']);
@@ -60,8 +65,10 @@ class AuthAndUserTest extends TestCase
 
     public function test_creating_user_with_duplicate_email_fails(): void
     {
-        $this->actingAs(User::factory()->create());
+        $this->seed(RoleSeeder::class);
+        $this->actingAs(User::factory()->administrador()->create());
         User::factory()->create(['email' => 'existe@cc.test']);
+        $soporteId = Role::where('name', 'soporte')->value('id');
 
         $this->postJson('/api/users', [
             'name' => 'Otro',
@@ -69,13 +76,15 @@ class AuthAndUserTest extends TestCase
             'email' => 'existe@cc.test',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',
+            'role_id' => $soporteId,
         ])->assertStatus(422)->assertJsonValidationErrors('email');
     }
 
     public function test_user_is_soft_deleted_and_cannot_delete_self(): void
     {
-        $me = User::factory()->create();
-        $other = User::factory()->create();
+        $this->seed(RoleSeeder::class);
+        $me = User::factory()->administrador()->create();
+        $other = User::factory()->soporte()->create();
         $this->actingAs($me);
 
         // No puede eliminarse a sí mismo.

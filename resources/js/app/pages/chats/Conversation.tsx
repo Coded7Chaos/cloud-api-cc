@@ -1,4 +1,4 @@
-import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User } from 'lucide-react';
+import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User, Lock } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { shortTime, type ConversationDetail } from './types';
@@ -98,28 +98,35 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
             </div>
 
             <div className="px-3 md:px-5 py-3 border-t border-black/5 bg-white">
-                <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-3 py-2">
-                    <button className="text-[#004479] hover:opacity-70">
-                        <Smile size={18} />
-                    </button>
-                    <button className="text-[#004479] hover:opacity-70">
-                        <Paperclip size={18} />
-                    </button>
-                    <input
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), submit())}
-                        placeholder="Escribe un mensaje..."
-                        className="flex-1 bg-transparent outline-none text-sm px-1"
-                    />
-                    <button
-                        onClick={submit}
-                        disabled={sending || !input.trim()}
-                        className="w-9 h-9 rounded-full bg-[#FFCC00] text-[#004479] flex items-center justify-center hover:brightness-95 transition disabled:opacity-50"
-                    >
-                        <Send size={16} />
-                    </button>
-                </div>
+                {conversation.can_send ? (
+                    <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-3 py-2">
+                        <button className="text-[#004479] hover:opacity-70">
+                            <Smile size={18} />
+                        </button>
+                        <button className="text-[#004479] hover:opacity-70">
+                            <Paperclip size={18} />
+                        </button>
+                        <input
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), submit())}
+                            placeholder="Escribe un mensaje..."
+                            className="flex-1 bg-transparent outline-none text-sm px-1"
+                        />
+                        <button
+                            onClick={submit}
+                            disabled={sending || !input.trim()}
+                            className="w-9 h-9 rounded-full bg-[#FFCC00] text-[#004479] flex items-center justify-center hover:brightness-95 transition disabled:opacity-50"
+                        >
+                            <Send size={16} />
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-4 py-2.5 text-xs text-muted-foreground">
+                        <Lock size={14} className="shrink-0" />
+                        Pasaron más de 24 horas desde el último mensaje del cliente. Vas a poder responder cuando vuelva a escribir.
+                    </div>
+                )}
             </div>
         </div>
     );

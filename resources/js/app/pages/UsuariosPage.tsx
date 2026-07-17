@@ -72,6 +72,7 @@ export default function UsuariosPage() {
                             <TableRow>
                                 <TableHead>Usuario</TableHead>
                                 <TableHead>Correo</TableHead>
+                                <TableHead>Rol</TableHead>
                                 <TableHead>Alta</TableHead>
                                 <TableHead className="text-right">Acciones</TableHead>
                             </TableRow>
@@ -92,6 +93,7 @@ export default function UsuariosPage() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                                    <TableCell className="text-muted-foreground">{u.role?.name ?? '—'}</TableCell>
                                     <TableCell className="text-muted-foreground">
                                         {new Date(u.created_at).toLocaleDateString('es')}
                                     </TableCell>

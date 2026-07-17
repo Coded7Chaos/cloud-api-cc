@@ -12,11 +12,26 @@ use Illuminate\Http\Request;
  */
 class ConversationController extends Controller
 {
-    /** Bandeja ordenada por última actividad. */
+    /**
+     * Bandeja ordenada por última actividad. Administrador ve todo; soporte
+     * solo lo suyo o lo que todavía nadie tomó. ?archived=1 trae los chats
+     * cuya ventana de 24h ya cerró (en vez de los activos); combinado con
+     * ?date=YYYY-MM-DD, solo los archivados registrados ese día (cada chat
+     * queda fijo en la fecha en la que se creó -- un mismo contacto que
+     * escribe en dos fechas distintas separadas por más de 24h genera dos
+     * conversaciones separadas, no una sola que se "reabre").
+     */
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+        $archived = $request->boolean('archived');
+        $date = $archived ? $request->date('date') : null;
+
         $conversations = Conversation::query()
-            ->with(['contact', 'assignee:id,name,last_name', 'latestMessage'])
+            ->visibleTo($user)
+            ->when($archived, fn ($q) => $q->windowClosed(), fn ($q) => $q->windowOpen())
+            ->when($date, fn ($q) => $q->whereDate('created_at', $date))
+            ->with(['contact', 'assignee:id,name,last_name', 'latestMessage', 'latestInboundMessage'])
             ->withCount(['messages as unread_count' => function ($q) {
                 // Entrantes sin leer = entrantes cuyo estado no es "read".
                 $q->where('direction', 'inbound')->where(function ($q) {
@@ -28,15 +43,24 @@ class ConversationController extends Controller
             ->get()
             ->map(fn (Conversation $c) => $this->transform($c));
 
-        return response()->json(['data' => $conversations]);
+        // Para el badge de la barra "Chats archivados" (solo hace falta al mirar la lista activa).
+        $archivedCount = $archived ? null : Conversation::query()->visibleTo($user)->windowClosed()->count();
+
+        return response()->json([
+            'data' => $conversations,
+            'meta' => ['archived_count' => $archivedCount],
+        ]);
     }
 
     /** Un hilo con todos sus mensajes en orden cronológico. */
-    public function show(Conversation $conversation): JsonResponse
+    public function show(Request $request, Conversation $conversation): JsonResponse
     {
+        $conversation->authorizeAndClaimFor($request->user());
+
         $conversation->load([
             'contact',
             'assignee:id,name,last_name',
+            'latestInboundMessage',
             'messages' => fn ($q) => $q->orderBy('created_at'),
             'messages.sender:id,name,last_name',
         ]);
@@ -70,8 +94,10 @@ class ConversationController extends Controller
         return [
             'id' => $c->id,
             'status' => $c->status,
+            'created_at' => $c->created_at,
             'last_message_at' => $c->last_message_at,
             'unread_count' => $c->unread_count ?? 0,
+            'can_send' => $c->canSendFreeform(),
             'contact' => [
                 'id' => $c->contact->id,
                 'wa_id' => $c->contact->wa_id,

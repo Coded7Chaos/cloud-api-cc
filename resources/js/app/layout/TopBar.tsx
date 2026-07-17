@@ -1,4 +1,5 @@
 import { Search, Bell, LogOut, ChevronDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import {
     DropdownMenu,
@@ -8,12 +9,45 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { initials } from './nav-items';
+import type { ConversationSummary } from '../pages/chats/types';
+
+// Poll propio para el badge de la campana: TopBar es hermano de <Outlet/> en
+// AppLayout (no padre/hijo de ChatsPage), así que no puede leer su estado
+// directamente. Una consulta liviana más cada 4s mientras haya un soporte
+// logueado es un costo aceptable frente a armar un context global solo para
+// este badge pasivo.
+const POLL_MS = 4000;
 
 export function TopBar() {
     const { user, logout } = useAuth();
     const fullName = [user?.name, user?.last_name].filter(Boolean).join(' ');
+    const isSoporte = user?.role?.name === 'soporte';
+    const [unclaimedCount, setUnclaimedCount] = useState(0);
+
+    useEffect(() => {
+        if (!isSoporte) return;
+
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const res = await api.get('/conversations');
+                if (cancelled) return;
+                const data: ConversationSummary[] = res.data.data;
+                setUnclaimedCount(data.filter((c) => c.assignee === null).length);
+            } catch {
+                // Badge secundario: si falla, no interrumpimos con un toast.
+            }
+        };
+        load();
+        const timer = setInterval(load, POLL_MS);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [isSoporte]);
 
     return (
         <header className="flex items-center gap-3 md:gap-6 px-4 md:px-8 py-3 bg-[#004479] text-white">
@@ -35,7 +69,11 @@ export function TopBar() {
 
             <button className="relative p-2 rounded-full hover:bg-white/10 transition">
                 <Bell size={18} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#FFCC00]" />
+                {isSoporte && unclaimedCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 bg-[#FFCC00] text-[#004479] text-[10px] rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center font-semibold">
+                        {unclaimedCount > 9 ? '9+' : unclaimedCount}
+                    </span>
+                )}
             </button>
 
             <DropdownMenu>

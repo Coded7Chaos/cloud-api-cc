@@ -1,17 +1,55 @@
-import { Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Search, Archive, ArrowLeft, ChevronRight, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
+import { toast } from 'sonner';
+import { api } from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
-import type { ConversationSummary } from './types';
+import { Badge } from '../../components/ui/badge';
+import { shortDate, type ConversationSummary } from './types';
 
 type Props = {
     conversations: ConversationSummary[];
+    archivedCount: number;
     selectedId: number | null;
     loading: boolean;
     onSelect: (id: number) => void;
 };
 
-export function ChatList({ conversations, selectedId, loading, onSelect }: Props) {
+export function ChatList({ conversations, archivedCount, selectedId, loading, onSelect }: Props) {
+    const { user } = useAuth();
+    const isAdmin = user?.role?.name === 'administrador';
+
     const [query, setQuery] = useState('');
+    const [mode, setMode] = useState<'active' | 'archived'>('active');
+    const [archived, setArchived] = useState<ConversationSummary[]>([]);
+    const [loadingArchived, setLoadingArchived] = useState(false);
+    // Fecha de registro para filtrar archivados (YYYY-MM-DD, vacío = todas).
+    const [archivedDate, setArchivedDate] = useState('');
+
+    const loadArchived = useCallback(async (date: string) => {
+        setLoadingArchived(true);
+        try {
+            const res = await api.get('/conversations', { params: { archived: 1, date: date || undefined } });
+            setArchived(res.data.data);
+        } catch (err) {
+            const msg = axios.isAxiosError(err) ? err.response?.data?.message : null;
+            toast.error(msg ?? 'No se pudieron cargar los chats archivados.');
+        } finally {
+            setLoadingArchived(false);
+        }
+    }, []);
+
+    const openArchived = useCallback(() => {
+        setMode('archived');
+        loadArchived(archivedDate);
+    }, [loadArchived, archivedDate]);
+
+    // Recarga cuando cambia la fecha, mientras se está mirando archivados.
+    useEffect(() => {
+        if (mode === 'archived') loadArchived(archivedDate);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [archivedDate]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -19,30 +57,80 @@ export function ChatList({ conversations, selectedId, loading, onSelect }: Props
         return conversations.filter((c) => c.contact.name.toLowerCase().includes(q));
     }, [conversations, query]);
 
+    const rows = mode === 'active' ? filtered : archived;
+    const rowsLoading = mode === 'active' ? loading : loadingArchived;
+
     return (
         <div className="flex flex-col h-full bg-white rounded-2xl overflow-hidden">
             <div className="px-5 pt-5 pb-3">
-                <h3 className="mb-3 text-lg font-medium text-[#004479]">Chats</h3>
-                <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                        type="text"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Buscar contacto"
-                        className="w-full bg-[#f4f6f9] rounded-full pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#004479]/20"
-                    />
-                </div>
+                {mode === 'active' ? (
+                    <>
+                        <h3 className="mb-3 text-lg font-medium text-[#004479]">Chats</h3>
+                        <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Buscar contacto"
+                                className="w-full bg-[#f4f6f9] rounded-full pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#004479]/20"
+                            />
+                        </div>
+                        <button
+                            onClick={openArchived}
+                            className="w-full flex items-center gap-2 mt-3 px-3 py-2 rounded-xl bg-[#f4f6f9] hover:bg-black/5 transition text-left"
+                        >
+                            <Archive size={16} className="text-[#004479]" />
+                            <span className="flex-1 text-sm text-[#004479]">Chats archivados</span>
+                            {archivedCount > 0 && (
+                                <Badge className="bg-[#004479]/10 text-[#004479] border-transparent">{archivedCount}</Badge>
+                            )}
+                            <ChevronRight size={14} className="text-muted-foreground" />
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <div className="flex items-center gap-2 mb-3">
+                            <button
+                                onClick={() => setMode('active')}
+                                className="p-1.5 -ml-1.5 rounded-full hover:bg-black/5 text-[#004479]"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                            <h3 className="text-lg font-medium text-[#004479]">Chats archivados</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="date"
+                                value={archivedDate}
+                                onChange={(e) => setArchivedDate(e.target.value)}
+                                aria-label="Filtrar por fecha de registro"
+                                className="flex-1 bg-[#f4f6f9] rounded-full px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#004479]/20"
+                            />
+                            {archivedDate && (
+                                <button
+                                    onClick={() => setArchivedDate('')}
+                                    title="Quitar filtro de fecha"
+                                    className="p-2 rounded-full hover:bg-black/5 text-muted-foreground"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                    </>
+                )}
             </div>
 
             <div className="flex-1 overflow-y-auto px-2 pb-3">
-                {loading && <p className="px-3 py-4 text-xs text-muted-foreground">Cargando conversaciones…</p>}
+                {rowsLoading && <p className="px-3 py-4 text-xs text-muted-foreground">Cargando conversaciones…</p>}
 
-                {!loading && filtered.length === 0 && (
-                    <p className="px-3 py-4 text-xs text-muted-foreground">No hay conversaciones.</p>
+                {!rowsLoading && rows.length === 0 && (
+                    <p className="px-3 py-4 text-xs text-muted-foreground">
+                        {mode === 'active' ? 'No hay conversaciones.' : 'No hay chats archivados.'}
+                    </p>
                 )}
 
-                {filtered.map((c) => {
+                {rows.map((c) => {
                     const selected = c.id === selectedId;
                     return (
                         <button
@@ -58,22 +146,30 @@ export function ChatList({ conversations, selectedId, loading, onSelect }: Props
                                         {c.contact.name[0]?.toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                {c.status === 'open' && (
+                                {c.can_send && (
                                     <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#FFCC00] ring-2 ring-white" />
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-2">
                                     <span className="text-sm truncate text-[#004479]">{c.contact.name}</span>
-                                    {c.unread_count > 0 && (
-                                        <span className="ml-2 bg-[#FFCC00] text-[#004479] text-[10px] rounded-full px-1.5 min-w-[18px] h-[18px] flex items-center justify-center font-semibold">
-                                            {c.unread_count}
-                                        </span>
-                                    )}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {mode === 'archived' && (
+                                            <span className="text-[11px] text-muted-foreground">{shortDate(c.created_at)}</span>
+                                        )}
+                                        {isAdmin && c.assignee && (
+                                            <span className="text-[11px] text-muted-foreground truncate max-w-[64px]">
+                                                {c.assignee.name}
+                                            </span>
+                                        )}
+                                        {c.unread_count > 0 && (
+                                            <span className="bg-[#FFCC00] text-[#004479] text-[10px] rounded-full px-1.5 min-w-[18px] h-[18px] flex items-center justify-center font-semibold">
+                                                {c.unread_count}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-                                <p className="text-xs text-muted-foreground truncate">
-                                    {c.preview ?? 'Sin mensajes todavía'}
-                                </p>
+                                <p className="text-xs text-muted-foreground truncate">{c.preview ?? 'Sin mensajes todavía'}</p>
                             </div>
                         </button>
                     );

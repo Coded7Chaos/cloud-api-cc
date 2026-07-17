@@ -34,7 +34,7 @@ class AuthController extends Controller
         $request->session()->regenerate();
 
         return response()->json([
-            'user' => $request->user(),
+            'user' => $request->user()->load('role.permissions'),
         ]);
     }
 
@@ -42,7 +42,7 @@ class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         return response()->json([
-            'user' => $request->user(),
+            'user' => $request->user()->load('role.permissions'),
         ]);
     }
 

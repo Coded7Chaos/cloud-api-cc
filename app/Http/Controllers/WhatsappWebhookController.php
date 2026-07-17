@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Contact;
-use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\WhatsappService;
 use Illuminate\Http\Request;
@@ -38,8 +37,8 @@ class WhatsappWebhookController extends Controller
      * Recepción de eventos: mensajes entrantes y cambios de estado.
      *
      * SIEMPRE respondemos 200 rápido: si devolvés error, Meta reintenta
-     * el mismo evento una y otra vez. La idempotencia (updateOrCreate por
-     * wa_message_id) hace que esos reintentos no dupliquen filas.
+     * el mismo evento una y otra vez. La idempotencia (chequeo por
+     * wa_message_id antes de crear) hace que esos reintentos no dupliquen filas.
      */
     public function receive(Request $request): Response
     {
@@ -79,24 +78,21 @@ class WhatsappWebhookController extends Controller
             ['profile_name' => data_get($contactData, 'profile.name')],
         );
 
-        // Reusar el hilo abierto del contacto, o abrir uno nuevo.
-        $conversation = $contact->conversations()
-            ->where('status', '!=', 'closed')
-            ->latest('last_message_at')
-            ->first()
-            ?? $contact->conversations()->create(['status' => 'open']);
-
         foreach ($messages as $payload) {
-            $this->storeInboundMessage($conversation, $payload);
+            $this->storeInboundMessage($contact, $payload);
         }
-
-        $conversation->update(['last_message_at' => now()]);
     }
 
     /**
+     * Cada mensaje decide su conversación por separado (no una vez por lote):
+     * si el contacto escribe con la ventana de 24h todavía abierta, sigue en
+     * el mismo hilo; si ya pasaron más de 24h desde su último mensaje, es un
+     * chat nuevo -- el anterior queda archivado tal cual estaba, sin que este
+     * mensaje lo reabra ni lo mueva.
+     *
      * @param  array<string, mixed>  $payload
      */
-    private function storeInboundMessage(Conversation $conversation, array $payload): void
+    private function storeInboundMessage(Contact $contact, array $payload): void
     {
         $waMessageId = $payload['id'] ?? null;
 
@@ -104,21 +100,35 @@ class WhatsappWebhookController extends Controller
             return;
         }
 
+        // Reentrega de Meta del mismo evento: ya se procesó, no la tratamos
+        // de nuevo (evita que una redelivery tardía "mueva" el mensaje a una
+        // conversación distinta solo porque ya pasaron 24h desde entonces).
+        if (Message::where('wa_message_id', $waMessageId)->exists()) {
+            return;
+        }
+
+        $conversation = $contact->conversations()
+            ->where('status', '!=', 'closed')
+            ->windowOpen()
+            ->latest('last_message_at')
+            ->first()
+            ?? $contact->conversations()->create(['status' => 'open']);
+
         $type = $payload['type'] ?? 'text';
 
-        $message = Message::updateOrCreate(
-            ['wa_message_id' => $waMessageId], // clave de idempotencia
-            [
-                'conversation_id' => $conversation->id,
-                'direction' => 'inbound',
-                'type' => $type,
-                'body' => $this->extractBody($payload, $type),
-                'status' => 'delivered',
-                'sent_at' => isset($payload['timestamp'])
-                    ? now()->setTimestamp((int) $payload['timestamp'])
-                    : now(),
-            ],
-        );
+        $message = Message::create([
+            'conversation_id' => $conversation->id,
+            'wa_message_id' => $waMessageId,
+            'direction' => 'inbound',
+            'type' => $type,
+            'body' => $this->extractBody($payload, $type),
+            'status' => 'delivered',
+            'sent_at' => isset($payload['timestamp'])
+                ? now()->setTimestamp((int) $payload['timestamp'])
+                : now(),
+        ]);
+
+        $conversation->update(['last_message_at' => now()]);
 
         // Si trae media y todavía no la descargamos, la bajamos al storage privado.
         $mediaId = data_get($payload, "{$type}.id");

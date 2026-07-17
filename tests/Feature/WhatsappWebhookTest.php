@@ -69,6 +69,53 @@ class WhatsappWebhookTest extends TestCase
         ]);
     }
 
+    public function test_message_after_the_24h_window_closed_starts_a_new_conversation(): void
+    {
+        // Primer mensaje: abre la conversación A.
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000010', 'wamid.OLD', 'Hola en junio'))
+            ->assertOk();
+
+        $oldConversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000010'))->firstOrFail();
+
+        // Simulamos que pasó tiempo real: su único mensaje queda a más de 24h.
+        $oldConversation->messages()->update(['sent_at' => now()->subDays(20)]);
+        $oldConversation->update(['last_message_at' => now()->subDays(20)]);
+
+        // El mismo contacto vuelve a escribir mucho después: tiene que ser
+        // una conversación NUEVA, no la reapertura de la anterior.
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000010', 'wamid.NEW', 'Hola de nuevo en julio'))
+            ->assertOk();
+
+        $this->assertDatabaseCount('conversations', 2);
+        $this->assertDatabaseCount('messages', 2);
+
+        $newMessage = Message::where('wa_message_id', 'wamid.NEW')->firstOrFail();
+        $this->assertNotSame($oldConversation->id, $newMessage->conversation_id);
+
+        // La vieja queda intacta: sigue con un solo mensaje, tal como estaba.
+        $this->assertSame(1, $oldConversation->messages()->count());
+    }
+
+    public function test_redelivered_webhook_after_the_window_closed_still_does_not_duplicate_or_move_the_message(): void
+    {
+        $payload = $this->inboundTextPayload('59170000011', 'wamid.REDELIVER', 'Mensaje original');
+        $this->postJson('/api/whatsapp/webhook', $payload)->assertOk();
+
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000011'))->firstOrFail();
+
+        // Pasa el tiempo (la ventana de esa conversación cierra) y Meta reentrega
+        // el MISMO evento (wamid repetido): no debe crear una 2da conversación
+        // ni mover el mensaje, porque ya se había procesado la primera vez.
+        $conversation->messages()->update(['sent_at' => now()->subDays(5)]);
+        $conversation->update(['last_message_at' => now()->subDays(5)]);
+
+        $this->postJson('/api/whatsapp/webhook', $payload)->assertOk();
+
+        $this->assertDatabaseCount('conversations', 1);
+        $this->assertSame(1, Message::where('wa_message_id', 'wamid.REDELIVER')->count());
+        $this->assertSame($conversation->id, Message::where('wa_message_id', 'wamid.REDELIVER')->value('conversation_id'));
+    }
+
     public function test_duplicate_webhook_does_not_duplicate_message(): void
     {
         $payload = $this->inboundTextPayload('59170000002', 'wamid.DUP', 'Mensaje repetido');

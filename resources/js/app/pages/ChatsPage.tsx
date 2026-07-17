@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import axios from 'axios';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { ChatList } from './chats/ChatList';
 import { Conversation } from './chats/Conversation';
 import { ProfilePanel } from './chats/ProfilePanel';
@@ -12,7 +14,11 @@ type MobileView = 'list' | 'chat' | 'profile';
 const POLL_MS = 4000;
 
 export default function ChatsPage() {
+    const { user } = useAuth();
+    const isSoporte = user?.role?.name === 'soporte';
+
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+    const [archivedCount, setArchivedCount] = useState(0);
     const [loadingList, setLoadingList] = useState(true);
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [detail, setDetail] = useState<ConversationDetail | null>(null);
@@ -27,6 +33,7 @@ export default function ChatsPage() {
             const res = await api.get('/conversations');
             const data: ConversationSummary[] = res.data.data;
             setConversations(data);
+            setArchivedCount(res.data.meta?.archived_count ?? 0);
             return data;
         } catch {
             if (!silent) toast.error('No se pudieron cargar las conversaciones.');
@@ -41,21 +48,38 @@ export default function ChatsPage() {
         try {
             const res = await api.get(`/conversations/${id}`);
             setDetail(res.data.data);
-        } catch {
-            if (!silent) toast.error('No se pudo abrir la conversación.');
+        } catch (err) {
+            const status = axios.isAxiosError(err) ? err.response?.status : null;
+            if (status === 409) {
+                toast.warning(axios.isAxiosError(err) ? err.response?.data?.message : 'Este chat ya fue tomado por otro agente.');
+                setSelectedId(null);
+                setDetail(null);
+                loadConversations();
+            } else if (status === 404) {
+                toast.error('Esa conversación ya no está disponible.');
+                setSelectedId(null);
+                setDetail(null);
+            } else if (!silent) {
+                toast.error('No se pudo abrir la conversación.');
+            }
         } finally {
             if (!silent) setLoadingDetail(false);
         }
-    }, []);
+    }, [loadConversations]);
 
-    // Carga inicial de la bandeja + preselección de la primera conversación.
+    // Carga inicial de la bandeja. Para soporte NO preseleccionamos la primera
+    // conversación: abrir un chat sin asignar lo reclama (authorizeAndClaimFor),
+    // así que auto-seleccionar por comodidad terminaría "tomando" un chat solo
+    // por entrar a la página, sin que el agente haya hecho click a propósito.
+    // Para administrador (que nunca reclama al mirar) sí es seguro y cómodo.
     useEffect(() => {
         loadConversations().then((data) => {
+            if (isSoporte) return;
             if (data && data.length) {
                 setSelectedId((current) => current ?? data[0].id);
             }
         });
-    }, [loadConversations]);
+    }, [loadConversations, isSoporte]);
 
     // Auto-refresh de la bandeja (mensajes nuevos, orden, no leídos).
     useEffect(() => {
@@ -79,9 +103,32 @@ export default function ChatsPage() {
         setMobileView('chat');
     }, []);
 
+    // Aviso de "chat nuevo sin tomar" para soporte: comparamos el set de
+    // conversaciones sin asignar contra el del refresco anterior. Solo avisa
+    // de las que aparecieron recién -- no re-notifica en cada poll, ni
+    // dispara en la carga inicial (que solo establece la base de comparación).
+    const previousUnclaimedIds = useRef<Set<number> | null>(null);
+    useEffect(() => {
+        if (!isSoporte) return;
+
+        if (previousUnclaimedIds.current) {
+            for (const c of conversations) {
+                if (c.assignee === null && !previousUnclaimedIds.current.has(c.id)) {
+                    toast.info(`Chat nuevo de ${c.contact.name}`, {
+                        description: c.preview ?? undefined,
+                        duration: 10000,
+                        action: { label: 'Ver', onClick: () => openChat(c.id) },
+                    });
+                }
+            }
+        }
+
+        previousUnclaimedIds.current = new Set(conversations.filter((c) => c.assignee === null).map((c) => c.id));
+    }, [conversations, isSoporte, openChat]);
+
     const sendMessage = useCallback(
         async (body: string) => {
-            if (selectedId == null) return;
+            if (selectedId == null || detail?.can_send === false) return;
             setSending(true);
             try {
                 const res = await api.post(`/conversations/${selectedId}/messages`, { body });
@@ -100,13 +147,14 @@ export default function ChatsPage() {
                 if (message.status === 'failed') {
                     toast.warning('El mensaje se guardó pero no pudo entregarse a WhatsApp.');
                 }
-            } catch {
-                toast.error('No se pudo enviar el mensaje.');
+            } catch (err) {
+                const serverMessage = axios.isAxiosError(err) ? err.response?.data?.message : null;
+                toast.error(serverMessage ?? 'No se pudo enviar el mensaje.');
             } finally {
                 setSending(false);
             }
         },
-        [selectedId],
+        [selectedId, detail?.can_send],
     );
 
     return (
@@ -114,6 +162,7 @@ export default function ChatsPage() {
             <div className={`${mobileView === 'list' ? 'block' : 'hidden'} md:block h-full overflow-hidden`}>
                 <ChatList
                     conversations={conversations}
+                    archivedCount={archivedCount}
                     selectedId={selectedId}
                     loading={loadingList}
                     onSelect={openChat}

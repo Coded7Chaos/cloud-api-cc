@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -41,6 +42,21 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    /** Falla ruidosamente si RoleSeeder no corrió, en vez de dejar role_id en null. */
+    public function administrador(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role_id' => Role::where('name', 'administrador')->firstOrFail()->id,
+        ]);
+    }
+
+    public function soporte(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role_id' => Role::where('name', 'soporte')->firstOrFail()->id,
         ]);
     }
 }

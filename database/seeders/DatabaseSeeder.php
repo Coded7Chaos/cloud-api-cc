@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -17,6 +18,11 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        $this->call(RoleSeeder::class);
+
+        $adminRoleId = Role::where('name', 'administrador')->value('id');
+        $soporteRoleId = Role::where('name', 'soporte')->value('id');
+
         // ── Agente principal (con el que se inicia sesión) ──────────────────
         $agent = User::firstOrCreate(
             ['email' => 'agente@cc.test'],
@@ -25,11 +31,36 @@ class DatabaseSeeder extends Seeder
                 'last_name' => 'Patra',
                 'password' => 'password', // se castea a hashed en el modelo
                 'email_verified_at' => now(),
+                'role_id' => $adminRoleId,
             ],
         );
 
-        // Algunos agentes más para la pantalla de Usuarios.
-        User::factory()->count(3)->create();
+        // 2do administrador, para tener dos cuentas admin de prueba.
+        User::firstOrCreate(
+            ['email' => 'administrador@cc.test'],
+            [
+                'name' => 'Admin',
+                'last_name' => 'Dos',
+                'password' => 'password',
+                'email_verified_at' => now(),
+                'role_id' => $adminRoleId,
+            ],
+        );
+
+        // Cuenta de soporte con credenciales conocidas, fácil de usar a mano.
+        User::firstOrCreate(
+            ['email' => 'soporte@cc.test'],
+            [
+                'name' => 'Soporte',
+                'last_name' => 'Uno',
+                'password' => 'password',
+                'email_verified_at' => now(),
+                'role_id' => $soporteRoleId,
+            ],
+        );
+
+        // Resto de agentes de soporte (datos de Faker).
+        User::factory()->count(3)->create(['role_id' => $soporteRoleId]);
 
         // ── Contactos + conversaciones + mensajes (bandeja de chats) ────────
         $samples = [

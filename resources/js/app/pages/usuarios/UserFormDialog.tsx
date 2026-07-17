@@ -13,6 +13,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 
 export type PanelUser = {
     id: number;
@@ -21,6 +22,8 @@ export type PanelUser = {
     email: string;
     email_verified_at: string | null;
     created_at: string;
+    role_id: number | null;
+    role?: { id: number; name: string } | null;
 };
 
 type Props = {
@@ -32,19 +35,31 @@ type Props = {
 
 type FieldErrors = Record<string, string[]>;
 
-const empty = { name: '', last_name: '', email: '', password: '', password_confirmation: '' };
+const empty = { name: '', last_name: '', email: '', password: '', password_confirmation: '', role_id: '' };
 
 export function UserFormDialog({ open, user, onOpenChange, onSaved }: Props) {
     const isEdit = !!user;
     const [form, setForm] = useState(empty);
     const [errors, setErrors] = useState<FieldErrors>({});
     const [saving, setSaving] = useState(false);
+    const [roles, setRoles] = useState<{ id: number; name: string }[]>([]);
+
+    useEffect(() => {
+        api.get('/roles').then((res) => setRoles(res.data.data)).catch(() => {});
+    }, []);
 
     useEffect(() => {
         if (open) {
             setForm(
                 user
-                    ? { name: user.name, last_name: user.last_name, email: user.email, password: '', password_confirmation: '' }
+                    ? {
+                          name: user.name,
+                          last_name: user.last_name,
+                          email: user.email,
+                          password: '',
+                          password_confirmation: '',
+                          role_id: user.role_id ? String(user.role_id) : '',
+                      }
                     : empty,
             );
             setErrors({});
@@ -110,6 +125,23 @@ export function UserFormDialog({ open, user, onOpenChange, onSaved }: Props) {
                         <Label htmlFor="email">Correo electrónico</Label>
                         <Input id="email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
                         {fieldError('email') && <p className="text-xs text-destructive">{fieldError('email')}</p>}
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <Label htmlFor="role_id">Rol</Label>
+                        <Select value={form.role_id} onValueChange={(value) => set('role_id', value)}>
+                            <SelectTrigger id="role_id">
+                                <SelectValue placeholder="Selecciona un rol" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {roles.map((r) => (
+                                    <SelectItem key={r.id} value={String(r.id)}>
+                                        {r.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        {fieldError('role_id') && <p className="text-xs text-destructive">{fieldError('role_id')}</p>}
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">

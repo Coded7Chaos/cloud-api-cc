@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\MediaController;
@@ -26,19 +28,39 @@ Route::get('/media/{media}', [MediaController::class, 'show'])
 Route::prefix('api')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 
+    // Recuperación de contraseña ("olvidé mi contraseña"). Throttle propio
+    // aparte del que ya trae el password broker (config/auth.php), para
+    // frenar spam de envíos antes de tocar la tabla password_reset_tokens.
+    Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLink'])
+        ->middleware('throttle:6,1');
+    Route::post('/reset-password', [PasswordResetController::class, 'reset'])
+        ->middleware('throttle:6,1');
+
     Route::middleware('auth')->group(function () {
         Route::get('/user', [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);
 
+        // Catálogo de roles de solo lectura, para el selector del form de Usuarios.
+        Route::get('/roles', [RoleController::class, 'index']);
+
         Route::apiResource('users', UserController::class)
-            ->only(['index', 'store', 'update', 'destroy']);
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middlewareFor('index', 'permission:usuarios.ver')
+            ->middlewareFor('store', 'permission:usuarios.crear')
+            ->middlewareFor('update', 'permission:usuarios.editar')
+            ->middlewareFor('destroy', 'permission:usuarios.eliminar');
 
-        Route::get('/conversations', [ConversationController::class, 'index']);
-        Route::get('/conversations/{conversation}', [ConversationController::class, 'show']);
-        Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
+        Route::get('/conversations', [ConversationController::class, 'index'])
+            ->middleware('permission:conversaciones.ver');
+        Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])
+            ->middleware('permission:conversaciones.ver');
+        Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store'])
+            ->middleware('permission:conversaciones.responder');
 
-        Route::get('/schedules', [ScheduleController::class, 'index']);
-        Route::put('/users/{user}/schedule', [ScheduleController::class, 'update']);
+        Route::get('/schedules', [ScheduleController::class, 'index'])
+            ->middleware('permission:horarios.ver');
+        Route::put('/users/{user}/schedule', [ScheduleController::class, 'update'])
+            ->middleware('permission:horarios.editar');
     });
 });
 
