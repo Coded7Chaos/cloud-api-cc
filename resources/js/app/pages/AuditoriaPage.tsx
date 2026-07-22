@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ClipboardList, Filter, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import axios from 'axios';
 import { api } from '../../lib/api';
 import { Button } from '../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
@@ -56,8 +57,13 @@ export default function AuditoriaPage() {
                 },
             });
             setLogs(res.data.data);
-        } catch {
-            toast.error('No se pudo cargar la auditoría.');
+        } catch (err) {
+            const status = axios.isAxiosError(err) ? err.response?.status : null;
+            toast.error(
+                status === 403
+                    ? 'No tienes permiso para ver la auditoría. Ejecuta las migraciones y vuelve a iniciar sesión.'
+                    : 'No se pudo cargar la auditoría.',
+            );
         } finally {
             setLoading(false);
         }

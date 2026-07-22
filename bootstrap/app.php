@@ -19,6 +19,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // shouldRenderJsonWhen de abajo.
         $middleware->redirectGuestsTo(fn () => '/login');
 
+        // Un solo juego de rutas sirve a dos clientes con el guard sanctum:
+        //  - SPA del panel (mismo origen): statefulApi() antepone cookies +
+        //    sesión + CSRF a /api/*, así que sigue autenticando por cookie
+        //    exactamente igual que antes de exponer la API.
+        //  - Apps móviles (otro origen): sin cookie de sesión, sanctum cae al
+        //    token Bearer de personal_access_tokens.
+        $middleware->statefulApi();
+        $middleware->throttleApi();
+
         $middleware->alias([
             'permission' => EnsurePermission::class,
         ]);

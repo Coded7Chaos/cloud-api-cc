@@ -9,6 +9,8 @@ import ChatsPage from './pages/ChatsPage';
 import UsuariosPage from './pages/UsuariosPage';
 import HorariosPage from './pages/HorariosPage';
 import AuditoriaPage from './pages/AuditoriaPage';
+import TareasPage from './pages/TareasPage';
+import DashboardPage from './pages/DashboardPage';
 
 function FullScreenLoader() {
     return (
@@ -28,7 +30,7 @@ function RequireAuth() {
 
 function RequireAdmin() {
     const { user } = useAuth();
-    if (user?.role?.name !== 'administrador') return <Navigate to="/chats" replace />;
+    if (user?.role?.name !== 'administrador') return <Navigate to="/dashboard" replace />;
     return <Outlet />;
 }
 
@@ -39,7 +41,7 @@ export default function App() {
         <Routes>
             <Route
                 path="/login"
-                element={loading ? <FullScreenLoader /> : user ? <Navigate to="/chats" replace /> : <LoginPage />}
+                element={loading ? <FullScreenLoader /> : user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
             />
             <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -47,8 +49,10 @@ export default function App() {
 
             <Route element={<RequireAuth />}>
                 <Route element={<AppLayout />}>
-                    <Route index element={<Navigate to="/chats" replace />} />
+                    <Route index element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/chats" element={<ChatsPage />} />
+                    <Route path="/tareas" element={<TareasPage />} />
                     <Route element={<RequireAdmin />}>
                         <Route path="/usuarios" element={<UsuariosPage />} />
                         <Route path="/horarios" element={<HorariosPage />} />
@@ -57,7 +61,7 @@ export default function App() {
                 </Route>
             </Route>
 
-            <Route path="*" element={<Navigate to="/chats" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
     );
 }

@@ -1,4 +1,4 @@
-import { MessageCircle, Users, CalendarClock, ClipboardList, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, MessageCircle, Users, CalendarClock, ClipboardCheck, ClipboardList, type LucideIcon } from 'lucide-react';
 
 export type NavItem = {
     to: string;
@@ -10,7 +10,9 @@ export type NavItem = {
 // Las tres secciones del panel. Compartidas por el Sidebar (desktop) y el
 // BottomNav (mobile) para que no se desincronicen.
 export const navItems: NavItem[] = [
+    { to: '/dashboard', label: 'Inicio', icon: LayoutDashboard, roles: ['administrador', 'soporte'] },
     { to: '/chats', label: 'Chats', icon: MessageCircle, roles: ['administrador', 'soporte'] },
+    { to: '/tareas', label: 'Tareas', icon: ClipboardCheck, roles: ['administrador', 'soporte'] },
     { to: '/usuarios', label: 'Usuarios', icon: Users, roles: ['administrador'] },
     { to: '/horarios', label: 'Horarios', icon: CalendarClock, roles: ['administrador'] },
     { to: '/auditoria', label: 'Auditoría', icon: ClipboardList, roles: ['administrador'] },

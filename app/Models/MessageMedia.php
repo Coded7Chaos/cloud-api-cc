@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\URL;
 
 #[Fillable([
     'message_id', 'disk', 'storage_path', 'mime_type',
@@ -21,16 +20,16 @@ class MessageMedia extends Model
     }
 
     /**
-     * URL firmada y temporal para descargar el archivo privado.
-     * No expone la ruta del disco: apunta a la ruta media.download,
-     * protegida por auth + firma, y caduca a los minutos indicados.
+     * URL para descargar el archivo privado. No expone la ruta del disco:
+     * apunta a media.show, que autoriza por conversación (ver MediaController).
+     *
+     * Es estable a propósito, no firmada-y-temporal: las apps móviles cachean
+     * las imágenes por URL, y un link que caduca a los minutos tira ese caché
+     * a la basura en cada refresco del hilo. El SPA la pide con su cookie de
+     * sesión y el móvil con su token Bearer.
      */
-    public function url(int $minutes = 5): string
+    public function url(): string
     {
-        return URL::temporarySignedRoute(
-            'media.download',
-            now()->addMinutes($minutes),
-            ['media' => $this->id],
-        );
+        return route('media.show', ['media' => $this->id]);
     }
 }

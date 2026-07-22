@@ -24,6 +24,39 @@ class MessageController extends Controller
 {
     public function __construct(private readonly WhatsappService $whatsapp) {}
 
+    /**
+     * Historial hacia atrás, para el scroll infinito del móvil.
+     *
+     * Cursor por id descendente en vez de ?page=N: el hilo crece por abajo
+     * mientras el agente scrollea hacia arriba, y con offsets fijos cada
+     * mensaje nuevo corre la ventana y hace que se repitan o se salteen filas.
+     * Anclando en un id eso no pasa.
+     */
+    public function index(Request $request, Conversation $conversation): JsonResponse
+    {
+        $conversation->authorizeAndClaimFor($request->user());
+
+        $limit = max(1, min((int) $request->integer('limit', 50), 200));
+
+        $messages = $conversation->messages()
+            ->when($request->filled('before'), fn ($q) => $q->where('id', '<', $request->integer('before')))
+            ->with(['sender:id,name,last_name', 'media'])
+            ->orderByDesc('id')
+            ->limit($limit + 1) // uno de más: sirve para saber si quedan más atrás
+            ->get();
+
+        $hasMore = $messages->count() > $limit;
+        $page = $messages->take($limit)->reverse()->values();
+
+        return response()->json([
+            'data' => $page->map(fn (Message $m) => $m->toApiArray())->values(),
+            'meta' => [
+                'has_more' => $hasMore,
+                'next_cursor' => $hasMore && $page->isNotEmpty() ? $page->first()->id : null,
+            ],
+        ]);
+    }
+
     public function store(Request $request, Conversation $conversation): JsonResponse
     {
         $user = $request->user();
@@ -103,25 +136,13 @@ class MessageController extends Controller
 
         $conversation->update(['last_message_at' => $message->sent_at]);
         $message->load('media');
+        $message->setRelation('sender', $user);
 
-        return response()->json([
-            'data' => [
-                'id' => $message->id,
-                'direction' => $message->direction,
-                'type' => $message->type,
-                'body' => $message->body,
-                'status' => $message->fresh()->status,
-                'sent_at' => $message->sent_at,
-                'created_at' => $message->created_at,
-                'media' => $message->media->map(fn ($media) => [
-                    'id' => $media->id,
-                    'url' => $media->url(),
-                    'mime_type' => $media->mime_type,
-                    'original_filename' => $media->original_filename,
-                    'size' => $media->size,
-                ])->values(),
-                'sender' => ['id' => $user->id, 'name' => $user->name],
-            ],
-        ], 201);
+        // El webhook de Meta puede haber movido el estado (sent -> delivered)
+        // mientras se armaba esta respuesta, así que se relee de la tabla en
+        // vez de confiar en el valor que quedó en memoria.
+        $message->status = Message::whereKey($message->getKey())->value('status');
+
+        return response()->json(['data' => $message->toApiArray()], 201);
     }
 }

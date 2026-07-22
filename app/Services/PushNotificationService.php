@@ -2,77 +2,68 @@
 
 namespace App\Services;
 
-use App\Models\PushSubscription as StoredPushSubscription;
+use App\Jobs\SendPushNotification;
 use App\Models\User;
+use App\Services\Push\PushChannel;
+use App\Services\Push\PushMessage;
 use Illuminate\Support\Facades\Log;
-use Minishlink\WebPush\Subscription;
-use Minishlink\WebPush\WebPush;
 
+/**
+ * Fachada de notificaciones: reparte un mismo aviso a todos los canales
+ * habilitados (navegador, iOS, Android) sin que quien lo dispara sepa por
+ * dónde va a salir.
+ *
+ * Los canales se resuelven desde config/push.php; los que no tengan
+ * credenciales se saltean en silencio, así el entorno de desarrollo funciona
+ * sin configurar nada.
+ */
 class PushNotificationService
 {
+    /** @var list<PushChannel> */
+    private array $channels;
+
+    /**
+     * @param  list<PushChannel>|null  $channels
+     */
+    public function __construct(?array $channels = null)
+    {
+        $this->channels = $channels ?? array_map(
+            fn (string $channel) => app($channel),
+            (array) config('push.channels', []),
+        );
+    }
+
+    /**
+     * Encola el envío. Se llama desde el webhook de WhatsApp, que tiene que
+     * responder 200 rápido: si tarda, Meta reintenta el mismo evento.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function sendToUser(User $user, string $title, string $body, array $data = []): void
     {
-        $auth = $this->auth();
+        SendPushNotification::dispatch($user->getKey(), $title, $body, $data);
+    }
 
-        if (! $auth) {
-            Log::info('WebPush: VAPID no configurado, no se envió push.');
+    /**
+     * Envío real, ya dentro del worker. Cada canal se aísla: que APNs esté
+     * caído no puede dejar sin notificación a los agentes en Android.
+     */
+    public function deliver(User $user, PushMessage $message): void
+    {
+        foreach ($this->channels as $channel) {
+            if (! $channel->isConfigured()) {
+                continue;
+            }
 
-            return;
-        }
-
-        $subscriptions = $user->pushSubscriptions()->get();
-
-        if ($subscriptions->isEmpty()) {
-            return;
-        }
-
-        $webPush = new WebPush($auth);
-        $payload = json_encode([
-            'title' => $title,
-            'body' => $body,
-            'url' => $data['url'] ?? '/chats',
-            'data' => $data,
-        ], JSON_UNESCAPED_UNICODE);
-
-        foreach ($subscriptions as $stored) {
-            $report = $webPush->sendOneNotification($this->subscription($stored), $payload ?: null);
-
-            if ($report->isSubscriptionExpired()) {
-                $stored->delete();
-            } elseif (! $report->isSuccess()) {
-                Log::warning('WebPush: fallo al enviar notificación', [
-                    'endpoint' => $stored->endpoint,
-                    'reason' => $report->getReason(),
+            try {
+                $channel->send($user, $message);
+            } catch (\Throwable $e) {
+                Log::warning('Push: canal falló al enviar', [
+                    'channel' => $channel->name(),
+                    'user_id' => $user->getKey(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
-    }
-
-    private function auth(): ?array
-    {
-        $publicKey = config('services.webpush.vapid_public_key');
-        $privateKey = config('services.webpush.vapid_private_key');
-
-        if (! $publicKey || ! $privateKey) {
-            return null;
-        }
-
-        return [
-            'VAPID' => [
-                'subject' => config('services.webpush.subject'),
-                'publicKey' => $publicKey,
-                'privateKey' => $privateKey,
-            ],
-        ];
-    }
-
-    private function subscription(StoredPushSubscription $stored): Subscription
-    {
-        return Subscription::create([
-            'endpoint' => $stored->endpoint,
-            'publicKey' => $stored->public_key,
-            'authToken' => $stored->auth_token,
-            'contentEncoding' => $stored->content_encoding,
-        ]);
     }
 }

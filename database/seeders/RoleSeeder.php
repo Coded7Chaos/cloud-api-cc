@@ -19,6 +19,9 @@ class RoleSeeder extends Seeder
         'horarios.ver' => 'Ver los horarios de los agentes',
         'horarios.editar' => 'Editar los turnos de horario de un agente',
         'auditoria.ver' => 'Ver registros de auditoría del panel',
+        'tareas.ver' => 'Ver tareas asignadas y su seguimiento',
+        'tareas.crear' => 'Crear y asignar tareas a agentes de soporte',
+        'tareas.completar' => 'Marcar como realizada una tarea propia',
     ];
 
     private const ROLE_PERMISSIONS = [
@@ -27,8 +30,12 @@ class RoleSeeder extends Seeder
             'conversaciones.ver', 'conversaciones.responder',
             'horarios.ver', 'horarios.editar',
             'auditoria.ver',
+            'tareas.ver', 'tareas.crear',
         ],
-        'soporte' => ['conversaciones.ver', 'conversaciones.responder'],
+        'soporte' => [
+            'conversaciones.ver', 'conversaciones.responder',
+            'tareas.ver', 'tareas.completar',
+        ],
     ];
 
     public function run(): void

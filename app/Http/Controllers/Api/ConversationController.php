@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\User;
 use App\Services\ConversationPresenceService;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,13 @@ class ConversationController extends Controller
      * ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD, filtra por fecha de registro
      * del chat. `date=YYYY-MM-DD` sigue aceptado como compatibilidad para un
      * solo día. Cada chat queda fijo en la fecha en la que se creó.
+     *
+     * Para móvil hay dos parámetros más:
+     *   ?per_page=N        pagina la bandeja (el SPA no lo manda y sigue
+     *                      recibiendo la lista entera, como siempre).
+     *   ?updated_since=ISO devuelve solo los chats que cambiaron desde esa
+     *                      marca, para que la app refresque sin volver a
+     *                      bajarse la bandeja completa en cada polleo.
      */
     public function index(Request $request): JsonResponse
     {
@@ -31,12 +39,19 @@ class ConversationController extends Controller
         $singleDate = $archived ? $request->date('date') : null;
         $dateFrom = $archived ? ($request->date('date_from') ?? $singleDate) : null;
         $dateTo = $archived ? ($request->date('date_to') ?? $singleDate) : null;
+        $updatedSince = $request->date('updated_since');
 
-        $conversations = Conversation::query()
+        // Se toma ANTES de consultar: si un chat cambia mientras se arma la
+        // respuesta, el próximo polleo con esta marca lo vuelve a traer. Al
+        // revés (marca tomada después) se perdería ese cambio para siempre.
+        $syncedAt = now();
+
+        $query = Conversation::query()
             ->visibleTo($user)
             ->when($archived, fn ($q) => $q->windowClosed(), fn ($q) => $q->windowOpen())
             ->when($dateFrom, fn ($q) => $q->whereDate('created_at', '>=', $dateFrom))
             ->when($dateTo, fn ($q) => $q->whereDate('created_at', '<=', $dateTo))
+            ->when($updatedSince, fn ($q) => $q->where('updated_at', '>=', $updatedSince))
             ->with(['contact', 'assignee:id,name,last_name', 'latestMessage', 'latestInboundMessage'])
             ->withCount(['messages as unread_count' => function ($q) {
                 // Entrantes sin leer = entrantes cuyo estado no es "read".
@@ -45,8 +60,11 @@ class ConversationController extends Controller
                 });
             }])
             ->orderByDesc('last_message_at')
-            ->orderByDesc('id')
-            ->get()
+            ->orderByDesc('id');
+
+        $perPage = $this->perPage($request);
+        $paginator = $perPage ? $query->paginate($perPage)->withQueryString() : null;
+        $conversations = ($paginator ? $paginator->getCollection() : $query->get())
             ->map(fn (Conversation $c) => $this->transform($c));
 
         // Para el badge de la barra "Chats archivados" (solo hace falta al mirar la lista activa).
@@ -54,11 +72,38 @@ class ConversationController extends Controller
 
         return response()->json([
             'data' => $conversations,
-            'meta' => ['archived_count' => $archivedCount],
+            'meta' => array_filter([
+                'archived_count' => $archivedCount,
+                'synced_at' => $syncedAt->toIso8601String(),
+                'current_page' => $paginator?->currentPage(),
+                'last_page' => $paginator?->lastPage(),
+                'per_page' => $paginator?->perPage(),
+                'total' => $paginator?->total(),
+            ], fn ($value) => $value !== null),
         ]);
     }
 
-    /** Un hilo con todos sus mensajes en orden cronológico. */
+    /**
+     * null = sin paginar. La bandeja nació devolviendo todo y el SPA cuenta con
+     * eso, así que paginar es opt-in: solo se activa si el cliente pide
+     * ?per_page. El tope evita que un cliente pida 100.000 de una.
+     */
+    private function perPage(Request $request): ?int
+    {
+        if (! $request->filled('per_page')) {
+            return null;
+        }
+
+        return max(1, min((int) $request->integer('per_page'), 100));
+    }
+
+    /**
+     * Un hilo con sus mensajes en orden cronológico.
+     *
+     * ?messages_limit=N trae solo los N más recientes; el resto se pide con
+     * GET /conversations/{id}/messages?before=<id> al scrollear hacia arriba.
+     * Sin el parámetro devuelve el hilo entero, que es lo que espera el SPA.
+     */
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
         $user = $request->user();
@@ -66,37 +111,40 @@ class ConversationController extends Controller
         $conversation->authorizeAndClaimFor($user);
         $this->markAsReadIfAssignedViewer($conversation, $user);
 
+        $limit = $request->filled('messages_limit')
+            ? max(1, min((int) $request->integer('messages_limit'), 200))
+            : null;
+
         $conversation->load([
             'contact',
             'assignee:id,name,last_name',
             'latestInboundMessage',
-            'messages' => fn ($q) => $q->orderBy('created_at'),
+            // Con límite se piden los ÚLTIMOS N (orden descendente) y se da
+            // vuelta la colección; ordenar ascendente y cortar traería los N
+            // más viejos, que es justo lo contrario de lo que quiere ver el
+            // agente al abrir un chat.
+            'messages' => fn ($q) => $limit
+                ? $q->orderByDesc('created_at')->orderByDesc('id')->limit($limit)
+                : $q->orderBy('created_at'),
             'messages.sender:id,name,last_name',
             'messages.media',
         ]);
 
+        // Se reordena sobre la propia relación, no en una variable aparte:
+        // transform() saca la vista previa de messages->last() y con la
+        // colección al revés tomaría el mensaje más viejo del hilo.
+        if ($limit) {
+            $conversation->setRelation('messages', $conversation->messages->reverse()->values());
+        }
+
+        $messages = $conversation->messages;
+
         return response()->json([
             'data' => array_merge($this->transform($conversation), [
-                'messages' => $conversation->messages->map(fn ($m) => [
-                    'id' => $m->id,
-                    'direction' => $m->direction,
-                    'type' => $m->type,
-                    'body' => $m->body,
-                    'status' => $m->status,
-                    'sent_at' => $m->sent_at,
-                    'created_at' => $m->created_at,
-                    'media' => $m->media->map(fn ($media) => [
-                        'id' => $media->id,
-                        'url' => $media->url(),
-                        'mime_type' => $media->mime_type,
-                        'original_filename' => $media->original_filename,
-                        'size' => $media->size,
-                    ])->values(),
-                    'sender' => $m->sender ? [
-                        'id' => $m->sender->id,
-                        'name' => $m->sender->name,
-                    ] : null,
-                ])->values(),
+                'messages' => $messages->map(fn (Message $m) => $m->toApiArray())->values(),
+                // El id más viejo de esta tanda: es el cursor para pedir los
+                // anteriores. null cuando ya vino el hilo completo.
+                'messages_cursor' => $limit && $messages->isNotEmpty() ? $messages->first()->id : null,
             ]),
         ]);
     }
