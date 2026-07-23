@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\PushSubscriptionController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ScheduleController;
@@ -56,6 +58,14 @@ return function (): void {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/dashboard', DashboardController::class);
 
+        // Perfil propio: cada usuario edita su cuenta. Sin permiso, solo estar
+        // logueado; siempre opera sobre el usuario autenticado.
+        Route::put('/profile', [ProfileController::class, 'update']);
+        Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+        Route::get('/profile/avatar', [ProfileController::class, 'avatar'])->name('profile.avatar');
+        Route::post('/profile/avatar', [ProfileController::class, 'updateAvatar']);
+        Route::delete('/profile/avatar', [ProfileController::class, 'destroyAvatar']);
+
         // Notificaciones del navegador (Web Push / VAPID).
         Route::get('/push/public-key', [PushSubscriptionController::class, 'publicKey']);
         Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store']);
@@ -66,8 +76,20 @@ return function (): void {
         Route::post('/devices', [DeviceTokenController::class, 'store']);
         Route::delete('/devices', [DeviceTokenController::class, 'destroy']);
 
-        // Catálogo de roles de solo lectura, para el selector del form de Usuarios.
-        Route::get('/roles', [RoleController::class, 'index']);
+        // Roles y permisos. El index alimenta tanto la pestaña de gestión como
+        // el selector de rol del alta de usuarios; por eso pide roles.ver, que
+        // el administrador ya tiene. La gestión (alta/edición/baja) va con su
+        // permiso propio.
+        Route::get('/permissions', [PermissionController::class, 'index'])
+            ->middleware('permission:roles.ver');
+        Route::get('/roles', [RoleController::class, 'index'])
+            ->middleware('permission:roles.ver');
+        Route::post('/roles', [RoleController::class, 'store'])
+            ->middleware('permission:roles.crear');
+        Route::put('/roles/{role}', [RoleController::class, 'update'])
+            ->middleware('permission:roles.editar');
+        Route::delete('/roles/{role}', [RoleController::class, 'destroy'])
+            ->middleware('permission:roles.eliminar');
 
         Route::apiResource('users', UserController::class)
             ->only(['index', 'store', 'update', 'destroy'])

@@ -11,6 +11,7 @@ import HorariosPage from './pages/HorariosPage';
 import AuditoriaPage from './pages/AuditoriaPage';
 import TareasPage from './pages/TareasPage';
 import DashboardPage from './pages/DashboardPage';
+import ProfilePage from './pages/ProfilePage';
 
 function FullScreenLoader() {
     return (
@@ -53,6 +54,7 @@ export default function App() {
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/chats" element={<ChatsPage />} />
                     <Route path="/tareas" element={<TareasPage />} />
+                    <Route path="/perfil" element={<ProfilePage />} />
                     <Route element={<RequireAdmin />}>
                         <Route path="/usuarios" element={<UsuariosPage />} />
                         <Route path="/horarios" element={<HorariosPage />} />

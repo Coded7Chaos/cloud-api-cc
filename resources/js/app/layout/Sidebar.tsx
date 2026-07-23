@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router';
 import { LogOut } from 'lucide-react';
-import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import { UserAvatar } from '../components/UserAvatar';
 import { useAuth } from '../../lib/auth';
-import { visibleNavItems, initials } from './nav-items';
+import { visibleNavItems } from './nav-items';
 
 export function Sidebar() {
     const { user, logout } = useAuth();
@@ -34,11 +34,22 @@ export function Sidebar() {
                 >
                     <LogOut size={18} />
                 </button>
-                <Avatar className="w-9 h-9 ring-2 ring-[#FFCC00]">
-                    <AvatarFallback className="bg-white text-[#004479] text-xs">
-                        {initials(user?.name, user?.last_name)}
-                    </AvatarFallback>
-                </Avatar>
+                {/* Acceso directo al perfil: al hacer click va a /perfil. */}
+                <NavLink
+                    to="/perfil"
+                    title="Mi perfil"
+                    className={({ isActive }) =>
+                        `rounded-full transition ${isActive ? 'ring-2 ring-white' : 'hover:opacity-90'}`
+                    }
+                >
+                    <UserAvatar
+                        name={user?.name}
+                        lastName={user?.last_name}
+                        avatarUrl={user?.avatar_url}
+                        className="w-9 h-9 ring-2 ring-[#FFCC00]"
+                        fallbackClassName="bg-white text-[#004479] text-xs"
+                    />
+                </NavLink>
             </div>
         </aside>
     );

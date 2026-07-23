@@ -6,6 +6,12 @@
       "runtimeExecutable": "composer",
       "runtimeArgs": ["run", "dev"],
       "port": 8000
+    },
+    {
+      "name": "cloud-api-cc-serve",
+      "runtimeExecutable": "php",
+      "runtimeArgs": ["artisan", "serve", "--port=8000"],
+      "port": 8000
     }
   ]
 }

@@ -8,6 +8,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -18,12 +19,20 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'last_name', 'email', 'password', 'role_id'])]
+#[Fillable(['name', 'last_name', 'email', 'password', 'role_id', 'avatar_path'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+
+    /**
+     * URL de la foto de perfil, calculada. Se agrega a la serialización para
+     * que el SPA la reciba junto al resto del usuario (en /user y /profile).
+     *
+     * @var list<string>
+     */
+    protected $appends = ['avatar_url'];
 
     /**
      * Get the attributes that should be cast.
@@ -36,6 +45,20 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * URL al endpoint que sirve la foto (no la ruta del archivo, que es
+     * privada). Relativa a propósito: el SPA es del mismo origen, así funciona
+     * en cualquier dominio sin depender de APP_URL. El ?v= cambia con cada
+     * guardado para romper el caché del navegador al subir una foto nueva.
+     * null si no tiene foto.
+     */
+    protected function avatarUrl(): Attribute
+    {
+        return Attribute::get(fn (): ?string => $this->avatar_path
+            ? route('profile.avatar', [], false).'?v='.($this->updated_at?->timestamp ?? 0)
+            : null);
     }
 
     /** @return HasMany<ScheduleVersion, $this> */

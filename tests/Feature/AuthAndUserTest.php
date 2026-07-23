@@ -107,16 +107,33 @@ class AuthAndUserTest extends TestCase
         $this->seed(RoleSeeder::class);
         $this->actingAs(User::factory()->administrador()->create());
 
+        $roleId = Role::where('name', 'soporte')->value('id');
+
         $this->postJson('/api/users', [
+            'name' => 'Nueva',
+            'last_name' => 'Agente',
             'email' => 'nuevo@cc.test',
+            'role_id' => $roleId,
         ])->assertCreated()
             ->assertJsonPath('message', 'Usuario creado. Enviamos una invitación para establecer su contraseña.');
 
         $user = User::where('email', 'nuevo@cc.test')->firstOrFail();
 
         $this->assertNull($user->password);
-        $this->assertSame(Role::where('name', 'soporte')->value('id'), $user->role_id);
+        $this->assertSame('Nueva', $user->name);
+        $this->assertSame('Agente', $user->last_name);
+        $this->assertSame($roleId, $user->role_id);
         Notification::assertSentTo($user, UserInvitationNotification::class);
+    }
+
+    public function test_creating_user_requires_name_last_name_and_role(): void
+    {
+        $this->seed(RoleSeeder::class);
+        $this->actingAs(User::factory()->administrador()->create());
+
+        $this->postJson('/api/users', ['email' => 'incompleto@cc.test'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['name', 'last_name', 'role_id']);
     }
 
     public function test_creating_user_with_duplicate_email_fails(): void
@@ -126,7 +143,10 @@ class AuthAndUserTest extends TestCase
         User::factory()->create(['email' => 'existe@cc.test']);
 
         $this->postJson('/api/users', [
+            'name' => 'Dup',
+            'last_name' => 'Licado',
             'email' => 'existe@cc.test',
+            'role_id' => Role::where('name', 'soporte')->value('id'),
         ])->assertStatus(422)->assertJsonValidationErrors('email');
     }
 

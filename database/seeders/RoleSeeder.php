@@ -22,6 +22,10 @@ class RoleSeeder extends Seeder
         'tareas.ver' => 'Ver tareas asignadas y su seguimiento',
         'tareas.crear' => 'Crear y asignar tareas a agentes de soporte',
         'tareas.completar' => 'Marcar como realizada una tarea propia',
+        'roles.ver' => 'Ver los roles y sus permisos',
+        'roles.crear' => 'Crear roles',
+        'roles.editar' => 'Editar roles y asignar permisos',
+        'roles.eliminar' => 'Eliminar roles',
     ];
 
     private const ROLE_PERMISSIONS = [
@@ -31,6 +35,7 @@ class RoleSeeder extends Seeder
             'horarios.ver', 'horarios.editar',
             'auditoria.ver',
             'tareas.ver', 'tareas.crear',
+            'roles.ver', 'roles.crear', 'roles.editar', 'roles.eliminar',
         ],
         'soporte' => [
             'conversaciones.ver', 'conversaciones.responder',

@@ -1,5 +1,5 @@
-import { LogOut, ChevronDown } from 'lucide-react';
-import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import { useNavigate } from 'react-router';
+import { LogOut, ChevronDown, UserRound } from 'lucide-react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -8,11 +8,12 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { UserAvatar } from '../components/UserAvatar';
 import { useAuth } from '../../lib/auth';
-import { initials } from './nav-items';
 
 export function TopBar() {
     const { user, logout } = useAuth();
+    const navigate = useNavigate();
     const fullName = [user?.name, user?.last_name].filter(Boolean).join(' ');
 
     return (
@@ -26,11 +27,13 @@ export function TopBar() {
 
             <DropdownMenu>
                 <DropdownMenuTrigger className="ml-auto flex items-center gap-2 outline-none rounded-full hover:bg-white/10 pl-1 pr-2 py-1 transition">
-                    <Avatar className="w-9 h-9 ring-2 ring-[#FFCC00]">
-                        <AvatarFallback className="bg-white text-[#004479] text-xs">
-                            {initials(user?.name, user?.last_name)}
-                        </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                        name={user?.name}
+                        lastName={user?.last_name}
+                        avatarUrl={user?.avatar_url}
+                        className="w-9 h-9 ring-2 ring-[#FFCC00]"
+                        fallbackClassName="bg-white text-[#004479] text-xs"
+                    />
                     <div className="hidden md:flex flex-col leading-tight text-left">
                         <span className="text-sm">{fullName || 'Usuario'}</span>
                         <span className="text-[11px] text-white/70">En línea</span>
@@ -45,6 +48,10 @@ export function TopBar() {
                         </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate('/perfil')}>
+                        <UserRound size={14} />
+                        Mi perfil
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => logout()} variant="destructive">
                         <LogOut size={14} />
                         Cerrar sesión

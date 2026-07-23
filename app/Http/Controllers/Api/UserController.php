@@ -10,7 +10,6 @@ use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password as PasswordBroker;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
@@ -32,22 +31,24 @@ class UserController extends Controller
         return response()->json(['data' => $users]);
     }
 
-    /** Crea un usuario. */
+    /** Crea un usuario y le envía una invitación para que fije su contraseña. */
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'last_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
         ]);
 
-        $emailPrefix = Str::of($data['email'])->before('@')->replace(['.', '_', '-'], ' ')->title()->value();
-        $supportRoleId = Role::where('name', 'soporte')->value('id');
-
+        // La contraseña la fija el propio agente desde el enlace de invitación,
+        // así que se crea sin contraseña.
         $user = User::create([
-            'name' => $emailPrefix ?: $data['email'],
-            'last_name' => '',
+            'name' => $data['name'],
+            'last_name' => $data['last_name'],
             'email' => $data['email'],
             'password' => null,
-            'role_id' => $supportRoleId,
+            'role_id' => $data['role_id'],
         ]);
 
         $token = PasswordBroker::createToken($user);
@@ -58,7 +59,7 @@ class UserController extends Controller
             "Creó el usuario {$user->email} y envió una invitación.",
             $request->user(),
             $user,
-            ['role' => 'soporte'],
+            ['role' => Role::whereKey($data['role_id'])->value('name')],
         );
 
         return response()->json([

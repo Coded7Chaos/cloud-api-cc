@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Role;
 use App\Models\User;
 use App\Notifications\UserInvitationNotification;
 use Database\Seeders\RoleSeeder;
@@ -27,8 +28,12 @@ class AuditLogTest extends TestCase
         $admin = User::factory()->administrador()->create(['name' => 'Admin']);
         $this->actingAs($admin);
 
-        $this->postJson('/api/users', ['email' => 'auditado@cc.test'])
-            ->assertCreated();
+        $this->postJson('/api/users', [
+            'name' => 'Auditado',
+            'last_name' => 'Uno',
+            'email' => 'auditado@cc.test',
+            'role_id' => Role::where('name', 'soporte')->value('id'),
+        ])->assertCreated();
 
         $user = User::where('email', 'auditado@cc.test')->firstOrFail();
         Notification::assertSentTo($user, UserInvitationNotification::class);

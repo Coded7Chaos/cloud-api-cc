@@ -104,25 +104,23 @@ export function UserFormDialog({ open, user, onOpenChange, onSaved }: Props) {
                     <DialogDescription>
                         {isEdit
                             ? 'Modifica los datos del agente. Deja la contraseña vacía para no cambiarla.'
-                            : 'Ingresa el correo del agente. Le enviaremos una invitación para crear su contraseña.'}
+                            : 'Completa los datos del agente. Le enviaremos una invitación por correo para que cree su contraseña.'}
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={submit} className="space-y-4">
-                    {isEdit && (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="name">Nombre</Label>
-                                <Input id="name" value={form.name} onChange={(e) => set('name', e.target.value)} />
-                                {fieldError('name') && <p className="text-xs text-destructive">{fieldError('name')}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="last_name">Apellido</Label>
-                                <Input id="last_name" value={form.last_name} onChange={(e) => set('last_name', e.target.value)} />
-                                {fieldError('last_name') && <p className="text-xs text-destructive">{fieldError('last_name')}</p>}
-                            </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="name">Nombre</Label>
+                            <Input id="name" value={form.name} onChange={(e) => set('name', e.target.value)} />
+                            {fieldError('name') && <p className="text-xs text-destructive">{fieldError('name')}</p>}
                         </div>
-                    )}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="last_name">Apellido</Label>
+                            <Input id="last_name" value={form.last_name} onChange={(e) => set('last_name', e.target.value)} />
+                            {fieldError('last_name') && <p className="text-xs text-destructive">{fieldError('last_name')}</p>}
+                        </div>
+                    </div>
 
                     <div className="space-y-1.5">
                         <Label htmlFor="email">Correo electrónico</Label>
@@ -130,25 +128,25 @@ export function UserFormDialog({ open, user, onOpenChange, onSaved }: Props) {
                         {fieldError('email') && <p className="text-xs text-destructive">{fieldError('email')}</p>}
                     </div>
 
+                    <div className="space-y-1.5">
+                        <Label htmlFor="role_id">Rol</Label>
+                        <Select value={form.role_id} onValueChange={(value) => set('role_id', value)}>
+                            <SelectTrigger id="role_id">
+                                <SelectValue placeholder="Selecciona un rol" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {roles.map((r) => (
+                                    <SelectItem key={r.id} value={String(r.id)}>
+                                        {r.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        {fieldError('role_id') && <p className="text-xs text-destructive">{fieldError('role_id')}</p>}
+                    </div>
+
                     {isEdit && (
                         <>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="role_id">Rol</Label>
-                                <Select value={form.role_id} onValueChange={(value) => set('role_id', value)}>
-                                    <SelectTrigger id="role_id">
-                                        <SelectValue placeholder="Selecciona un rol" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {roles.map((r) => (
-                                            <SelectItem key={r.id} value={String(r.id)}>
-                                                {r.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                {fieldError('role_id') && <p className="text-xs text-destructive">{fieldError('role_id')}</p>}
-                            </div>
-
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
                                     <Label htmlFor="password">Contraseña</Label>

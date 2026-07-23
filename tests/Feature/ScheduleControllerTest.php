@@ -66,6 +66,45 @@ class ScheduleControllerTest extends TestCase
         $this->assertDatabaseHas('schedule_versions', ['user_id' => $support->id]);
     }
 
+    public function test_overlapping_shifts_on_the_same_day_are_rejected(): void
+    {
+        $admin = User::factory()->administrador()->create();
+        $support = User::factory()->soporte()->create();
+
+        $this->actingAs($admin);
+
+        $this->putJson("/api/users/{$support->id}/schedule", [
+            'shifts' => [
+                ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '12:00'],
+                ['weekday' => 1, 'start_time' => '11:00', 'end_time' => '13:00'],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('shifts');
+
+        $this->assertDatabaseMissing('schedule_versions', ['user_id' => $support->id]);
+    }
+
+    public function test_adjacent_shifts_and_same_time_on_different_days_are_allowed(): void
+    {
+        $admin = User::factory()->administrador()->create();
+        $support = User::factory()->soporte()->create();
+
+        $this->actingAs($admin);
+
+        $this->putJson("/api/users/{$support->id}/schedule", [
+            'shifts' => [
+                // Pegados el mismo día: fin == inicio, no se pisan.
+                ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '12:00'],
+                ['weekday' => 1, 'start_time' => '12:00', 'end_time' => '15:00'],
+                // Misma franja pero otro día: tampoco es solapamiento.
+                ['weekday' => 2, 'start_time' => '09:00', 'end_time' => '12:00'],
+            ],
+        ])->assertOk();
+
+        $this->assertDatabaseCount('schedule_shifts', 3);
+    }
+
     public function test_support_role_cannot_access_schedule_management_api(): void
     {
         $support = User::factory()->soporte()->create();

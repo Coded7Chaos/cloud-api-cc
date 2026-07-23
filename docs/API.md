@@ -77,7 +77,11 @@ Autenticados:
 |--------|------------------------------------------|-----------------------------|
 | GET    | `/user`                                  | —                           |
 | POST   | `/logout`                                | —                           |
-| GET    | `/roles`                                 | —                           |
+| GET    | `/roles`                                 | `roles.ver`                 |
+| POST   | `/roles`                                 | `roles.crear`               |
+| PUT    | `/roles/{id}`                            | `roles.editar`              |
+| DELETE | `/roles/{id}`                            | `roles.eliminar`            |
+| GET    | `/permissions`                           | `roles.ver`                 |
 | GET    | `/conversations`                         | `conversaciones.ver`        |
 | GET    | `/conversations/{id}`                    | `conversaciones.ver`        |
 | GET    | `/conversations/{id}/messages`           | `conversaciones.ver`        |

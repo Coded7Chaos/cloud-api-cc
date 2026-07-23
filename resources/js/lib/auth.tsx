@@ -6,6 +6,8 @@ export type AuthUser = {
     name: string;
     last_name: string;
     email: string;
+    avatar_url: string | null;
+    created_at: string;
     role: { id: number; name: string } | null;
 };
 
@@ -14,6 +16,9 @@ type AuthContextValue = {
     loading: boolean;
     login: (email: string, password: string, remember?: boolean) => Promise<void>;
     logout: () => Promise<void>;
+    // Refresca el usuario en memoria tras editar el perfil, para que el nombre
+    // y la foto se actualicen en la barra sin recargar la página.
+    setUser: (user: AuthUser) => void;
 };
 
 const AuthContext = createContext<AuthContextValue>(null!);
@@ -41,7 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
     };
 
-    return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
+    return (
+        <AuthContext.Provider value={{ user, loading, login, logout, setUser }}>{children}</AuthContext.Provider>
+    );
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

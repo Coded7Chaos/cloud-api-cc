@@ -9,6 +9,7 @@ use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Horarios de los agentes.
@@ -75,6 +76,9 @@ class ScheduleController extends Controller
             'shifts.*.end_time' => ['required', 'date_format:H:i', 'after:shifts.*.start_time'],
         ]);
 
+        // Un mismo agente no puede estar en dos turnos a la vez el mismo día.
+        $this->assertNoOverlaps($data['shifts']);
+
         $before = $this->currentShifts($user);
 
         DB::transaction(function () use ($user, $data) {
@@ -112,6 +116,40 @@ class ScheduleController extends Controller
         );
 
         return $this->index();
+    }
+
+    /**
+     * Rechaza turnos que se pisan dentro del mismo día. Turnos pegados (uno
+     * termina justo cuando el otro empieza, 09:00–12:00 y 12:00–15:00) sí valen.
+     *
+     * @param  array<int, array{weekday:int,start_time:string,end_time:string}>  $shifts
+     */
+    private function assertNoOverlaps(array $shifts): void
+    {
+        $days = [1 => 'lunes', 2 => 'martes', 3 => 'miércoles', 4 => 'jueves', 5 => 'viernes', 6 => 'sábado', 7 => 'domingo'];
+
+        $byDay = [];
+        foreach ($shifts as $shift) {
+            $byDay[$shift['weekday']][] = $shift;
+        }
+
+        foreach ($byDay as $weekday => $dayShifts) {
+            // Ordenados por inicio, un turno se solapa con los anteriores si
+            // arranca antes de la hora de fin más tardía vista hasta ahora
+            // (las horas 'HH:i' se comparan bien como texto).
+            usort($dayShifts, fn ($a, $b) => strcmp($a['start_time'], $b['start_time']));
+
+            $maxEnd = '00:00';
+            foreach ($dayShifts as $shift) {
+                if ($shift['start_time'] < $maxEnd) {
+                    throw ValidationException::withMessages([
+                        'shifts' => ["El {$days[$weekday]} hay turnos que se superponen. Revisa que los horarios de un mismo día no se pisen."],
+                    ]);
+                }
+
+                $maxEnd = max($maxEnd, $shift['end_time']);
+            }
+        }
     }
 
     /**
