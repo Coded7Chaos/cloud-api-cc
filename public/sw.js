@@ -22,13 +22,37 @@ self.addEventListener('push', (event) => {
         }
     }
 
+    const conversationId = payload.data?.conversation_id;
+    const tag = conversationId ? `conversation-${conversationId}` : 'cloud-api-cc';
+
+    // Un agente ganó la toma: cerrar el aviso visible en todos los demás
+    // navegadores y refrescar cualquier pestaña que siga abierta.
+    if (payload.data?.event === 'conversation_claimed') {
+        event.waitUntil(
+            Promise.all([
+                self.registration.getNotifications({ tag }).then((notifications) => {
+                    notifications.forEach((notification) => notification.close());
+                }),
+                self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+                    clients.forEach((client) => client.postMessage({
+                        type: 'conversation_claimed',
+                        conversationId: Number(conversationId),
+                    }));
+                }),
+            ]),
+        );
+        return;
+    }
+
     event.waitUntil(
         self.registration.showNotification(payload.title, {
             body: payload.body,
             icon: '/favicon.ico',
             badge: '/favicon.ico',
+            tag,
             data: {
                 url: payload.url || payload.data?.url || '/chats',
+                conversationId,
             },
         }),
     );

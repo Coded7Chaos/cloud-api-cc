@@ -153,7 +153,7 @@ class PushChannelTest extends TestCase
         (new FcmChannel)->send($user, new PushMessage(
             'Nuevo mensaje de WhatsApp',
             'Hola',
-            ['conversation_id' => 7],
+            ['event' => 'new_chat', 'conversation_id' => 7],
         ));
 
         // 1) El assertion RS256 con el que se pide el access token.
@@ -189,8 +189,13 @@ class PushChannelTest extends TestCase
             );
             $this->assertSame('Bearer ya29.fake', $request->header('Authorization')[0]);
             $this->assertSame('fcm-device-token', $request['message']['token']);
-            $this->assertSame('Hola', $request['message']['notification']['body']);
+            $this->assertArrayNotHasKey('notification', $request['message']);
+            $this->assertSame('Nuevo mensaje de WhatsApp', $request['message']['data']['title']);
+            $this->assertSame('Hola', $request['message']['data']['body']);
+            $this->assertSame('new_chat', $request['message']['data']['event']);
             $this->assertSame('high', $request['message']['android']['priority']);
+            $this->assertSame('conversation_7', $request['message']['android']['collapse_key']);
+            $this->assertSame('3600s', $request['message']['android']['ttl']);
             $this->assertSame('7', $request['message']['data']['conversation_id']);
 
             return true;

@@ -65,7 +65,9 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // Los horarios de soporte se cargan en hora boliviana. Se deja configurable
+    // para otros despliegues, pero producción no debe evaluarlos como UTC.
+    'timezone' => env('APP_TIMEZONE', 'America/La_Paz'),
 
     /*
     |--------------------------------------------------------------------------

@@ -62,22 +62,30 @@ class FcmChannel implements PushChannel
 
     private function deliver(DeviceToken $device, PushMessage $message): void
     {
+        // Mensaje sólo de datos: Flutter lo recibe también en background y
+        // crea una notificación local con un id conocido. Ese mismo id permite
+        // retirarla cuando otro agente toma el chat, algo imposible con el id
+        // opaco de una notificación dibujada automáticamente por FCM.
+        $data = [
+            'title' => $message->title,
+            'body' => $message->body,
+            ...$message->stringData(),
+        ];
+        $conversationId = $data['conversation_id'] ?? null;
+
         $response = Http::withToken($this->accessToken())
             ->post("https://fcm.googleapis.com/v1/projects/{$this->projectId()}/messages:send", [
                 'message' => [
                     'token' => $device->token,
-                    'notification' => [
-                        'title' => $message->title,
-                        'body' => $message->body,
-                    ],
-                    'data' => $message->stringData(),
+                    'data' => $data,
                     'android' => [
                         // "high" despierta la app aunque el teléfono esté en Doze.
                         'priority' => 'high',
-                        'notification' => [
-                            'channel_id' => (string) config('push.fcm.channel_id'),
-                            'sound' => 'default',
-                        ],
+                        // Si el aparato está sin conexión y mientras tanto otro
+                        // agente toma el chat, FCM conserva sólo el último evento
+                        // de esta conversación (la cancelación).
+                        'collapse_key' => $conversationId ? "conversation_{$conversationId}" : 'cloud_api_cc',
+                        'ttl' => '3600s',
                     ],
                 ],
             ]);

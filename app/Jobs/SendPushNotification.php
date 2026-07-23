@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Conversation;
 use App\Models\User;
 use App\Services\Push\PushMessage;
 use App\Services\PushNotificationService;
@@ -42,6 +43,22 @@ class SendPushNotification implements ShouldQueue
 
         if (! $user) {
             return;
+        }
+
+        // Un agente puede tomar el chat antes de que el worker alcance el job
+        // de "chat nuevo". En ese caso no se entrega un aviso que ya nació
+        // vencido; la cancelación encolada por el ganador se ocupa de uno que
+        // sí hubiera alcanzado a mostrarse.
+        if (($this->data['event'] ?? null) === 'new_chat') {
+            $conversationId = (int) ($this->data['conversation_id'] ?? 0);
+            $stillUnclaimed = Conversation::query()
+                ->whereKey($conversationId)
+                ->whereNull('assigned_user_id')
+                ->exists();
+
+            if (! $stillUnclaimed) {
+                return;
+            }
         }
 
         $push->deliver($user, new PushMessage($this->title, $this->body, $this->data));

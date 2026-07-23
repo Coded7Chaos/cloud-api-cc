@@ -6,11 +6,13 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\PushNotificationService;
 use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
+use Mockery\MockInterface;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -142,6 +144,35 @@ class ConversationVisibilityTest extends TestCase
         }
 
         $this->assertSame($agentA->id, $conversation2->fresh()->assigned_user_id);
+    }
+
+    public function test_claiming_a_conversation_cancels_notifications_for_every_original_recipient(): void
+    {
+        $agentA = $this->agent();
+        $agentB = $this->agent();
+        $conversation = $this->conversationWithInboundAt(now()->subMinutes(5), null);
+        $conversation->notificationRecipients()->attach([$agentA->id, $agentB->id]);
+
+        $this->mock(PushNotificationService::class, function (MockInterface $mock) use ($conversation) {
+            $mock->shouldReceive('sendToUser')
+                ->twice()
+                ->withArgs(fn (User $user, string $title, string $body, array $data) => $title === 'Chat tomado'
+                    && $body === 'El chat ya fue tomado por otro agente.'
+                    && $data['event'] === 'conversation_claimed'
+                    && $data['conversation_id'] === $conversation->id);
+        });
+
+        $this->actingAs($agentA);
+        $this->getJson("/api/conversations/{$conversation->id}")
+            ->assertOk()
+            ->assertJsonPath('data.assignee.id', $agentA->id);
+
+        $this->assertDatabaseMissing('conversation_notification_recipients', [
+            'conversation_id' => $conversation->id,
+        ]);
+
+        $this->actingAs($agentB);
+        $this->getJson("/api/conversations/{$conversation->id}")->assertNotFound();
     }
 
     public function test_administrador_viewing_unclaimed_conversation_does_not_assign_it(): void

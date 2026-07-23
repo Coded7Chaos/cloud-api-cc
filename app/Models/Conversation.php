@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\ConversationNotificationService;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -37,6 +39,13 @@ class Conversation extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
+    }
+
+    /** Agentes que recibieron el aviso mientras el chat seguía sin dueño. */
+    public function notificationRecipients(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'conversation_notification_recipients')
+            ->withTimestamps();
     }
 
     /** Último mensaje del hilo (para la vista previa de la bandeja). */
@@ -147,6 +156,11 @@ class Conversation extends Model
             }
 
             $this->assigned_user_id = $user->id;
+            $this->setRelation('assignee', $user);
+
+            // La escritura condicional de arriba decide un único ganador. Sólo
+            // ese request llega hasta acá y puede retirar los avisos pendientes.
+            app(ConversationNotificationService::class)->notifyClaimed($this, $user);
         }
     }
 }

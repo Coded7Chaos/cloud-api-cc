@@ -6,8 +6,8 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
-use App\Services\ScheduleService;
 use App\Services\PushNotificationService;
+use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -113,20 +113,60 @@ class WhatsappWebhookTest extends TestCase
         ]);
     }
 
-    public function test_new_inbound_chat_is_assigned_to_support_agent_in_working_hours(): void
+    public function test_new_inbound_chat_notifies_every_support_agent_in_working_hours_without_assigning_it(): void
     {
         Carbon::setTestNow(Carbon::create(2026, 7, 13, 10, 0));
         $this->seed(RoleSeeder::class);
-        $agent = User::factory()->soporte()->create();
-        app(ScheduleService::class)->createSchedule($agent, [
-            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        $workingA = User::factory()->soporte()->create();
+        $workingB = User::factory()->soporte()->create();
+        $outsideShift = User::factory()->soporte()->create();
+
+        foreach ([$workingA, $workingB] as $agent) {
+            app(ScheduleService::class)->createSchedule($agent, [
+                ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+            ], Carbon::create(2026, 7, 1));
+        }
+        app(ScheduleService::class)->createSchedule($outsideShift, [
+            ['weekday' => 1, 'start_time' => '18:00', 'end_time' => '22:00'],
         ], Carbon::create(2026, 7, 1));
+
+        $this->mock(PushNotificationService::class, function (MockInterface $mock) use ($workingA, $workingB) {
+            $expectedIds = collect([$workingA->id, $workingB->id])->sort()->values()->all();
+            $notifiedIds = [];
+
+            $mock->shouldReceive('sendToUser')
+                ->twice()
+                ->withArgs(function (User $user, string $title, string $body, array $data) use (&$notifiedIds) {
+                    $notifiedIds[] = $user->id;
+
+                    return $title === 'Nuevo chat de WhatsApp'
+                        && $body === 'Hola'
+                        && $data['event'] === 'new_chat'
+                        && $data['conversation_id'] > 0;
+                })
+                ->andReturnUsing(function () use (&$notifiedIds, $expectedIds) {
+                    if (count($notifiedIds) === 2) {
+                        $this->assertSame($expectedIds, collect($notifiedIds)->sort()->values()->all());
+                    }
+                });
+        });
 
         $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000020', 'wamid.ASSIGN', 'Hola'))
             ->assertOk();
 
-        $this->assertDatabaseHas('conversations', [
-            'assigned_user_id' => $agent->id,
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000020'))->firstOrFail();
+        $this->assertNull($conversation->assigned_user_id);
+        $this->assertDatabaseHas('conversation_notification_recipients', [
+            'conversation_id' => $conversation->id,
+            'user_id' => $workingA->id,
+        ]);
+        $this->assertDatabaseHas('conversation_notification_recipients', [
+            'conversation_id' => $conversation->id,
+            'user_id' => $workingB->id,
+        ]);
+        $this->assertDatabaseMissing('conversation_notification_recipients', [
+            'conversation_id' => $conversation->id,
+            'user_id' => $outsideShift->id,
         ]);
     }
 

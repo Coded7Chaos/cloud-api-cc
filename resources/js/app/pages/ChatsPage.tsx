@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -16,6 +17,7 @@ const POLL_MS = 4000;
 export default function ChatsPage() {
     const { user } = useAuth();
     const isSoporte = user?.role?.name === 'soporte';
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [archivedCount, setArchivedCount] = useState(0);
@@ -104,6 +106,28 @@ export default function ChatsPage() {
         setSelectedId(id);
         setMobileView('chat');
     }, []);
+
+    // Web Push abre /chats?conversation_id=N. Consumimos el parámetro una
+    // sola vez para que recargar la página no intente reclamarlo de nuevo.
+    useEffect(() => {
+        const id = Number(searchParams.get('conversation_id'));
+        if (!Number.isInteger(id) || id <= 0) return;
+
+        openChat(id);
+        setSearchParams({}, { replace: true });
+    }, [openChat, searchParams, setSearchParams]);
+
+    // Si otra pestaña/dispositivo toma el chat, el service worker retira la
+    // notificación y pide refrescar la bandeja inmediatamente.
+    useEffect(() => {
+        const onWorkerMessage = (event: MessageEvent) => {
+            if (event.data?.type !== 'conversation_claimed') return;
+            loadConversations(true);
+        };
+
+        navigator.serviceWorker?.addEventListener('message', onWorkerMessage);
+        return () => navigator.serviceWorker?.removeEventListener('message', onWorkerMessage);
+    }, [loadConversations]);
 
     // Aviso de "chat nuevo sin tomar" para soporte: comparamos el set de
     // conversaciones sin asignar contra el del refresco anterior. Solo avisa
