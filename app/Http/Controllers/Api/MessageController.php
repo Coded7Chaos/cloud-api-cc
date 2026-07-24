@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\MessageCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -84,7 +85,14 @@ class MessageController extends Controller
 
         $conversation->loadMissing('contact');
         $file = $request->file('media');
-        $type = $file ? WhatsappService::typeForMime($file->getMimeType()) : 'text';
+        // El nombre desempata los contenedores ambiguos (un .m4a se detecta
+        // como video/mp4): sin él, una nota de voz saldría como video.
+        $type = $file
+            ? WhatsappService::typeForMime($file->getMimeType(), $file->getClientOriginalName())
+            : 'text';
+        $mime = $file
+            ? WhatsappService::normalizedMime($file->getMimeType(), $file->getClientOriginalName())
+            : null;
         $body = trim((string) ($data['body'] ?? ''));
 
         if ($file) {
@@ -117,7 +125,7 @@ class MessageController extends Controller
             $message->media()->create([
                 'disk' => 'local',
                 'storage_path' => $path,
-                'mime_type' => $file->getMimeType(),
+                'mime_type' => $mime,
                 'original_filename' => $file->getClientOriginalName(),
                 'size' => $file->getSize(),
                 'sha256' => hash_file('sha256', Storage::disk('local')->path($path)),
@@ -127,7 +135,7 @@ class MessageController extends Controller
         // 2) Entrega real a la Cloud API.
         try {
             if ($file) {
-                $upload = $this->whatsapp->uploadMedia($file);
+                $upload = $this->whatsapp->uploadMedia($file, $mime);
                 $mediaId = (string) data_get($upload, 'id');
                 $response = $this->whatsapp->sendMedia(
                     $conversation->contact->wa_id,
@@ -165,6 +173,9 @@ class MessageController extends Controller
         // mientras se armaba esta respuesta, así que se relee de la tabla en
         // vez de confiar en el valor que quedó en memoria.
         $message->status = Message::whereKey($message->getKey())->value('status');
+
+        // Tiempo real: los demás agentes que miran este chat lo ven al instante.
+        MessageCreated::dispatch($message);
 
         $deliveryFailed = $message->status === 'failed';
 

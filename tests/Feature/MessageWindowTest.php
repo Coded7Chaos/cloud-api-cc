@@ -261,6 +261,40 @@ class MessageWindowTest extends TestCase
         });
     }
 
+    public function test_a_voice_note_in_an_mp4_container_is_sent_as_audio(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'MEDIA_VOICE_1'], 200)
+            ->push(['messages' => [['id' => 'wamid.VOICE1']]], 200);
+
+        // Las notas de voz de la app móvil son .m4a, y el contenedor MP4 hace
+        // que se detecten como video/mp4: sin desempatar por extensión, se
+        // enviarían como mensaje de video.
+        $this->post("/api/v1/conversations/{$conversation->id}/messages", [
+            'media' => UploadedFile::fake()->create('nota-de-voz.m4a', 128, 'video/mp4'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'audio');
+
+        $this->assertDatabaseHas('messages', [
+            'wa_message_id' => 'wamid.VOICE1',
+            'type' => 'audio',
+        ]);
+        // El mime guardado también se corrige, para que el reproductor del
+        // panel y del móvil la traten como audio y no como video.
+        $this->assertDatabaseHas('message_media', ['mime_type' => 'audio/mp4']);
+
+        Http::assertSent(function ($request) {
+            $audio = $request->data()['audio'] ?? null;
+
+            return $audio === null || ! array_key_exists('caption', $audio);
+        });
+    }
+
     public function test_an_audio_cannot_carry_a_caption(): void
     {
         Storage::fake('local');

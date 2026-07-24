@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\MessageCreated;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Services\ConversationNotificationService;
@@ -159,6 +160,10 @@ class WhatsappWebhookController extends Controller
                 ]);
             }
         }
+
+        // Tiempo real: avisa al chat abierto. Va al final para que el mensaje
+        // ya tenga su media adjunta cuando se transmite.
+        MessageCreated::dispatch($message);
     }
 
     /**

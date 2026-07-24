@@ -34,12 +34,36 @@ class WhatsappService
     private string $version;
 
     /**
-     * Tipo de mensaje de WhatsApp para un mime dado. Cualquier cosa que no sea
+     * Audio que viaja en contenedores ambiguos: un .m4a usa el MISMO
+     * contenedor MP4 que el video, así que finfo lo detecta como "video/mp4".
+     * Sin esta lista, una nota de voz se enviaría como mensaje de video.
+     *
+     * @var array<string, string>
+     */
+    private const AUDIO_EXTENSIONS = [
+        'm4a' => 'audio/mp4',
+        'aac' => 'audio/aac',
+        'mp3' => 'audio/mpeg',
+        'ogg' => 'audio/ogg',
+        'opus' => 'audio/ogg',
+        'amr' => 'audio/amr',
+        'wav' => 'audio/wav',
+    ];
+
+    /**
+     * Tipo de mensaje de WhatsApp para un archivo. Cualquier cosa que no sea
      * imagen, video o audio viaja como "document" (PDF, Office, zip, txt…),
      * que es justo lo que espera la Cloud API.
+     *
+     * El nombre del archivo desempata cuando el mime miente (ver
+     * AUDIO_EXTENSIONS); por eso conviene pasarlo siempre que se tenga.
      */
-    public static function typeForMime(?string $mime): string
+    public static function typeForMime(?string $mime, ?string $filename = null): string
     {
+        if (self::audioMimeFromName($filename) !== null) {
+            return 'audio';
+        }
+
         $mime = strtolower((string) $mime);
 
         return match (true) {
@@ -48,6 +72,29 @@ class WhatsappService
             str_starts_with($mime, 'audio/') => 'audio',
             default => 'document',
         };
+    }
+
+    /**
+     * Mime corregido para guardar y para declararle a Meta. Solo cambia algo
+     * cuando la extensión dice audio y el mime detectado no lo refleja; así el
+     * reproductor del panel y del móvil también lo tratan como audio.
+     */
+    public static function normalizedMime(?string $mime, ?string $filename = null): ?string
+    {
+        $fromName = self::audioMimeFromName($filename);
+
+        if ($fromName !== null && ! str_starts_with(strtolower((string) $mime), 'audio/')) {
+            return $fromName;
+        }
+
+        return $mime;
+    }
+
+    private static function audioMimeFromName(?string $filename): ?string
+    {
+        $extension = strtolower(pathinfo((string) $filename, PATHINFO_EXTENSION));
+
+        return self::AUDIO_EXTENSIONS[$extension] ?? null;
     }
 
     /** Límite en KB para ese tipo de media. */
@@ -97,13 +144,15 @@ class WhatsappService
      *
      * @return array<string, mixed>
      */
-    public function uploadMedia(UploadedFile $file): array
+    public function uploadMedia(UploadedFile $file, ?string $mime = null): array
     {
         return $this->client()
             ->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
             ->post("/{$this->phoneNumberId}/media", [
                 'messaging_product' => 'whatsapp',
-                'type' => $file->getMimeType(),
+                // Se acepta un mime explícito porque el detectado puede mentir
+                // (un .m4a se reporta como video/mp4).
+                'type' => $mime ?? $file->getMimeType(),
             ])
             ->throw()
             ->json();
