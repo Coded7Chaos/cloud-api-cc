@@ -15,11 +15,46 @@ use Illuminate\Support\Str;
  */
 class WhatsappService
 {
+    /**
+     * Tamaño máximo (en KB) que acepta la Cloud API según el tipo. Son límites
+     * de Meta, no nuestros: mandar de más devuelve error y el mensaje queda
+     * como "failed" sin que el agente sepa por qué.
+     */
+    private const MAX_KILOBYTES = [
+        'image' => 5120,      // 5 MB
+        'video' => 16384,     // 16 MB
+        'audio' => 16384,     // 16 MB
+        'document' => 102400, // 100 MB
+    ];
+
     private string $phoneNumberId;
 
     private string $token;
 
     private string $version;
+
+    /**
+     * Tipo de mensaje de WhatsApp para un mime dado. Cualquier cosa que no sea
+     * imagen, video o audio viaja como "document" (PDF, Office, zip, txt…),
+     * que es justo lo que espera la Cloud API.
+     */
+    public static function typeForMime(?string $mime): string
+    {
+        $mime = strtolower((string) $mime);
+
+        return match (true) {
+            str_starts_with($mime, 'image/') => 'image',
+            str_starts_with($mime, 'video/') => 'video',
+            str_starts_with($mime, 'audio/') => 'audio',
+            default => 'document',
+        };
+    }
+
+    /** Límite en KB para ese tipo de media. */
+    public static function maxKilobytesFor(string $type): int
+    {
+        return self::MAX_KILOBYTES[$type] ?? self::MAX_KILOBYTES['document'];
+    }
 
     public function __construct()
     {
@@ -75,16 +110,27 @@ class WhatsappService
     }
 
     /**
-     * Envía una media ya subida por media_id. $type debe ser image o video.
+     * Envía una media ya subida por media_id. $type es image, video, audio o
+     * document.
+     *
+     * Dos particularidades de la Cloud API que hay que respetar o el envío
+     * falla / llega mal:
+     *   - audio NO admite caption (Meta rechaza el mensaje).
+     *   - document admite filename, y sin él al cliente le llega con un nombre
+     *     autogenerado en vez del real.
      *
      * @return array<string, mixed>
      */
-    public function sendMedia(string $to, string $type, string $mediaId, ?string $caption = null): array
+    public function sendMedia(string $to, string $type, string $mediaId, ?string $caption = null, ?string $filename = null): array
     {
         $media = ['id' => $mediaId];
 
-        if ($caption !== null && $caption !== '') {
+        if ($type !== 'audio' && $caption !== null && $caption !== '') {
             $media['caption'] = $caption;
+        }
+
+        if ($type === 'document' && $filename !== null && $filename !== '') {
+            $media['filename'] = $filename;
         }
 
         return $this->client()

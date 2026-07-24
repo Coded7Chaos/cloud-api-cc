@@ -8,6 +8,7 @@ use App\Models\Message;
 use App\Services\WhatsappService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -70,19 +71,33 @@ class MessageController extends Controller
 
         $data = $request->validate([
             'body' => ['nullable', 'string', 'max:1024'],
-            'media' => ['nullable', 'file', 'max:16384', 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/3gpp'],
+            // El tope real depende del tipo (ver abajo); acá solo se corta lo
+            // que ni siquiera podría ser un documento.
+            'media' => ['nullable', 'file', 'max:'.WhatsappService::maxKilobytesFor('document')],
         ]);
 
         if (! $request->filled('body') && ! $request->hasFile('media')) {
             throw ValidationException::withMessages([
-                'body' => ['Escribe un mensaje o adjunta una imagen/video.'],
+                'body' => ['Escribe un mensaje o adjunta un archivo.'],
             ]);
         }
 
         $conversation->loadMissing('contact');
         $file = $request->file('media');
-        $type = $file ? Str::of((string) $file->getMimeType())->before('/')->value() : 'text';
+        $type = $file ? WhatsappService::typeForMime($file->getMimeType()) : 'text';
         $body = trim((string) ($data['body'] ?? ''));
+
+        if ($file) {
+            $this->assertWithinTypeLimit($file, $type);
+
+            // La Cloud API descarta el caption de los audios: si lo dejáramos
+            // pasar, el agente vería su texto en el panel y el cliente no.
+            if ($type === 'audio' && $body !== '') {
+                throw ValidationException::withMessages([
+                    'body' => ['Los audios no admiten texto. Envía el audio y el texto por separado.'],
+                ]);
+            }
+        }
 
         // 1) Guardamos primero como "pending" para no perder el mensaje aunque
         //    el envío a Meta falle. wa_message_id provisional hasta tener el wamid.
@@ -114,7 +129,15 @@ class MessageController extends Controller
             if ($file) {
                 $upload = $this->whatsapp->uploadMedia($file);
                 $mediaId = (string) data_get($upload, 'id');
-                $response = $this->whatsapp->sendMedia($conversation->contact->wa_id, $type, $mediaId, $message->body);
+                $response = $this->whatsapp->sendMedia(
+                    $conversation->contact->wa_id,
+                    $type,
+                    $mediaId,
+                    $message->body,
+                    // Solo lo usa document: sin filename el cliente recibe el
+                    // archivo con un nombre autogenerado.
+                    $file->getClientOriginalName(),
+                );
                 $message->media()->update(['wa_media_id' => $mediaId]);
             } else {
                 $response = $this->whatsapp->sendText($conversation->contact->wa_id, $body);
@@ -152,5 +175,29 @@ class MessageController extends Controller
                 : 'Mensaje enviado.',
             'delivery_failed' => $deliveryFailed,
         ], 201);
+    }
+
+    /**
+     * Cada tipo tiene su propio tope en la Cloud API (una imagen aguanta mucho
+     * menos que un documento). Se valida acá y no en las reglas porque el tipo
+     * recién se conoce después de leer el mime del archivo.
+     */
+    private function assertWithinTypeLimit(UploadedFile $file, string $type): void
+    {
+        $maxKilobytes = WhatsappService::maxKilobytesFor($type);
+
+        if ($file->getSize() <= $maxKilobytes * 1024) {
+            return;
+        }
+
+        $labels = ['image' => 'Las imágenes', 'video' => 'Los videos', 'audio' => 'Los audios', 'document' => 'Los documentos'];
+
+        throw ValidationException::withMessages([
+            'media' => [sprintf(
+                '%s no pueden superar los %d MB.',
+                $labels[$type] ?? 'Los archivos',
+                (int) round($maxKilobytes / 1024),
+            )],
+        ]);
     }
 }

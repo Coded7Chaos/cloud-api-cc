@@ -202,4 +202,102 @@ class MessageWindowTest extends TestCase
             'wa_media_id' => 'MEDIA_VIDEO_1',
         ]);
     }
+
+    public function test_can_send_a_document_and_whatsapp_receives_its_filename(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'MEDIA_DOC_1'], 200)
+            ->push(['messages' => [['id' => 'wamid.DOC1']]], 200);
+
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'body' => 'Te mando el comprobante',
+            'media' => UploadedFile::fake()->create('comprobante.pdf', 200, 'application/pdf'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'document')
+            ->assertJsonPath('data.status', 'sent');
+
+        $this->assertDatabaseHas('messages', [
+            'wa_message_id' => 'wamid.DOC1',
+            'direction' => 'outbound',
+            'type' => 'document',
+        ]);
+
+        // Sin filename, al cliente le llega con un nombre autogenerado.
+        Http::assertSent(function ($request) {
+            $document = $request->data()['document'] ?? null;
+
+            return $document
+                && $document['filename'] === 'comprobante.pdf'
+                && $document['caption'] === 'Te mando el comprobante';
+        });
+    }
+
+    public function test_audio_travels_without_caption_because_whatsapp_rejects_it(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'MEDIA_AUDIO_1'], 200)
+            ->push(['messages' => [['id' => 'wamid.AUDIO1']]], 200);
+
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'media' => UploadedFile::fake()->create('nota-de-voz.ogg', 64, 'audio/ogg'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'audio')
+            ->assertJsonPath('data.status', 'sent');
+
+        Http::assertSent(function ($request) {
+            $audio = $request->data()['audio'] ?? null;
+
+            return $audio === null || ! array_key_exists('caption', $audio);
+        });
+    }
+
+    public function test_an_audio_cannot_carry_a_caption(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'body' => 'Escuchá esto',
+            'media' => UploadedFile::fake()->create('nota-de-voz.ogg', 64, 'audio/ogg'),
+        ], ['Accept' => 'application/json'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('body');
+
+        $this->assertDatabaseMissing('messages', ['direction' => 'outbound']);
+    }
+
+    public function test_the_size_limit_depends_on_the_media_type(): void
+    {
+        Storage::fake('local');
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        // 6 MB pasa el tope de imagen (5 MB) pero está lejos del de documento.
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'media' => UploadedFile::fake()->create('grande.jpg', 6 * 1024, 'image/jpeg'),
+        ], ['Accept' => 'application/json'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('media');
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'MEDIA_DOC_2'], 200)
+            ->push(['messages' => [['id' => 'wamid.DOC2']]], 200);
+
+        $this->post("/api/conversations/{$conversation->id}/messages", [
+            'media' => UploadedFile::fake()->create('grande.pdf', 6 * 1024, 'application/pdf'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'document');
+    }
 }

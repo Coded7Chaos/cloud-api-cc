@@ -143,7 +143,14 @@ class WhatsappWebhookController extends Controller
 
         if ($mediaId && $message->media()->doesntExist()) {
             try {
-                $message->media()->create($this->whatsapp->downloadMedia($mediaId));
+                $attributes = $this->whatsapp->downloadMedia($mediaId);
+
+                // El endpoint de media de Meta NO devuelve el nombre del
+                // archivo: el real viaja en el payload del mensaje. Sin esto,
+                // los documentos entrantes quedan sin nombre.
+                $attributes['original_filename'] ??= data_get($payload, "{$type}.filename");
+
+                $message->media()->create($attributes);
             } catch (\Throwable $e) {
                 // No rompemos el webhook por un fallo de descarga: se loguea y sigue.
                 Log::warning('WhatsApp: fallo al descargar media', [

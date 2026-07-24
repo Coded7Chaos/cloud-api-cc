@@ -1,4 +1,4 @@
-import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User, Lock, Clock, Check, CheckCheck, CircleAlert } from 'lucide-react';
+import { MoreVertical, Smile, Paperclip, Send, ArrowLeft, User, Lock, Clock, Check, CheckCheck, CircleAlert, FileText, Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { shortTime, type ChatMessage, type ConversationDetail } from './types';
@@ -48,11 +48,16 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
         };
     }, [emojiOpen]);
 
+    // El audio va sin caption: la Cloud API lo rechaza (ver MessageController).
+    const mediaIsAudio = media?.type?.startsWith('audio/') ?? false;
+
     const submit = async () => {
         const body = input.trim();
         if (!body && !media) return;
-        await onSend(body, media);
-        setInput('');
+
+        await onSend(mediaIsAudio ? '' : body, media);
+        // Con audio no se envió el texto, así que se conserva lo tipeado.
+        if (!mediaIsAudio) setInput('');
         setMedia(null);
         setEmojiOpen(false);
     };
@@ -138,11 +143,24 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                 {conversation.can_send ? (
                     <div className="space-y-2">
                         {media && (
-                            <div className="flex items-center justify-between gap-2 rounded-lg bg-[#f4f6f9] px-3 py-2 text-xs text-[#004479]">
-                                <span className="truncate">{media.name}</span>
-                                <button onClick={() => setMedia(null)} className="text-muted-foreground hover:text-destructive">
-                                    Quitar
-                                </button>
+                            <div className="rounded-lg bg-[#f4f6f9] px-3 py-2 text-xs text-[#004479]">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="truncate">
+                                        {media.name}
+                                        <span className="text-muted-foreground"> · {formatBytes(media.size)}</span>
+                                    </span>
+                                    <button
+                                        onClick={() => setMedia(null)}
+                                        className="text-muted-foreground hover:text-destructive shrink-0"
+                                    >
+                                        Quitar
+                                    </button>
+                                </div>
+                                {mediaIsAudio && (
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                        WhatsApp no permite texto junto a un audio: se envía solo el audio.
+                                    </p>
+                                )}
                             </div>
                         )}
                         <div className="flex items-center gap-2 bg-[#f4f6f9] rounded-full px-3 py-2">
@@ -177,14 +195,14 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                                 type="button"
                                 onClick={() => fileInputRef.current?.click()}
                                 className="text-[#004479] hover:opacity-70"
-                                title="Adjuntar imagen o video"
+                                title="Adjuntar imagen, video, audio o documento"
                             >
                                 <Paperclip size={18} />
                             </button>
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp"
+                                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
                                 className="hidden"
                                 onChange={(e) => setMedia(e.target.files?.[0] ?? null)}
                             />
@@ -193,8 +211,15 @@ export function Conversation({ conversation, loading, sending, onBack, onOpenPro
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), submit())}
-                                placeholder={media ? 'Agrega un caption...' : 'Escribe un mensaje...'}
-                                className="flex-1 bg-transparent outline-none text-sm px-1"
+                                disabled={mediaIsAudio}
+                                placeholder={
+                                    mediaIsAudio
+                                        ? 'El audio se envía sin texto'
+                                        : media
+                                          ? 'Agrega un caption...'
+                                          : 'Escribe un mensaje...'
+                                }
+                                className="flex-1 bg-transparent outline-none text-sm px-1 disabled:text-muted-foreground"
                             />
                             <button
                                 type="button"
@@ -265,8 +290,10 @@ function messageStatus(status: string | null) {
 function MessageMedia({ message }: { message: ChatMessage }) {
     if (!message.media.length) return null;
 
+    const mine = message.direction === 'outbound';
+
     return (
-        <div className={message.body ? 'mb-2' : ''}>
+        <div className={`space-y-2 ${message.body ? 'mb-2' : ''}`}>
             {message.media.map((media) => {
                 if (media.mime_type?.startsWith('image/')) {
                     return (
@@ -280,17 +307,66 @@ function MessageMedia({ message }: { message: ChatMessage }) {
                 }
 
                 if (media.mime_type?.startsWith('video/')) {
+                    return <video key={media.id} src={media.url} controls className="max-h-72 rounded-xl" />;
+                }
+
+                // Nota de voz / audio: reproductor embebido, como en WhatsApp.
+                if (media.mime_type?.startsWith('audio/')) {
                     return (
-                        <video key={media.id} src={media.url} controls className="max-h-72 rounded-xl" />
+                        <audio
+                            key={media.id}
+                            src={media.url}
+                            controls
+                            preload="metadata"
+                            className="w-64 max-w-full h-10"
+                        />
                     );
                 }
 
+                // Cualquier otra cosa (PDF, Office, zip…) va como tarjeta
+                // descargable con su nombre y peso.
                 return (
-                    <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="underline">
-                        {media.original_filename ?? 'Archivo adjunto'}
+                    <a
+                        key={media.id}
+                        href={media.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2 transition ${
+                            mine ? 'bg-white/15 hover:bg-white/25' : 'bg-[#f4f6f9] hover:bg-black/5'
+                        }`}
+                    >
+                        <FileText size={22} className="shrink-0 opacity-80" />
+                        <span className="min-w-0">
+                            <span className="block truncate max-w-[190px] font-medium">
+                                {media.original_filename ?? 'Archivo adjunto'}
+                            </span>
+                            <span className={`block text-[11px] ${mine ? 'text-white/70' : 'text-muted-foreground'}`}>
+                                {[fileLabel(media.mime_type), formatBytes(media.size)].filter(Boolean).join(' · ')}
+                            </span>
+                        </span>
+                        <Download size={15} className="shrink-0 opacity-70" />
                     </a>
                 );
             })}
         </div>
     );
+}
+
+/** Etiqueta corta del tipo de archivo a partir del mime (PDF, DOCX, ZIP…). */
+function fileLabel(mime: string | null): string {
+    if (!mime) return 'Archivo';
+    if (mime === 'application/pdf') return 'PDF';
+    if (mime.includes('word')) return 'Word';
+    if (mime.includes('sheet') || mime.includes('excel')) return 'Excel';
+    if (mime.includes('presentation') || mime.includes('powerpoint')) return 'PowerPoint';
+    if (mime.includes('zip') || mime.includes('compressed')) return 'ZIP';
+    if (mime.startsWith('text/')) return 'Texto';
+    return 'Archivo';
+}
+
+function formatBytes(bytes: number | null): string {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
