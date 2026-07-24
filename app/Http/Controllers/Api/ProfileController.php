@@ -36,10 +36,12 @@ class ProfileController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            // La web permite editar el correo. El móvil no muestra ese campo y
+            // lo omite por completo, por eso aquí es opcional.
+            'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
         ]);
 
-        $emailChanged = $data['email'] !== $user->email;
+        $emailChanged = array_key_exists('email', $data) && $data['email'] !== $user->email;
         $user->update($data);
 
         $this->audit->record(

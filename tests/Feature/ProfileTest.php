@@ -66,6 +66,26 @@ class ProfileTest extends TestCase
             ->assertOk();
     }
 
+    public function test_mobile_can_update_names_without_sending_or_changing_email(): void
+    {
+        $user = User::factory()->soporte()->create(['email' => 'fijo@cc.test']);
+
+        $this->actingAs($user)
+            ->putJson('/api/v1/profile', [
+                'name' => 'Nombre móvil',
+                'last_name' => 'Actualizado',
+            ])
+            ->assertOk()
+            ->assertJsonPath('user.name', 'Nombre móvil')
+            ->assertJsonPath('user.last_name', 'Actualizado')
+            ->assertJsonPath('user.email', 'fijo@cc.test');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'email' => 'fijo@cc.test',
+        ]);
+    }
+
     public function test_changing_password_requires_the_correct_current_one(): void
     {
         $user = User::factory()->soporte()->create(['password' => 'ClaveActual1!']);

@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Notifications\UserInvitationNotification;
 use App\Services\AuditLogService;
+use App\Services\UserDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password as PasswordBroker;
@@ -18,7 +19,10 @@ use Illuminate\Validation\Rules\Password;
  */
 class UserController extends Controller
 {
-    public function __construct(private readonly AuditLogService $audit) {}
+    public function __construct(
+        private readonly AuditLogService $audit,
+        private readonly UserDeletionService $userDeletion,
+    ) {}
 
     /** Lista de usuarios para la pantalla "Usuarios". */
     public function index(): JsonResponse
@@ -114,7 +118,7 @@ class UserController extends Controller
         ]);
     }
 
-    /** Elimina (soft delete) un usuario. */
+    /** Elimina definitivamente los datos del usuario, conservando su nombre en auditoría. */
     public function destroy(Request $request, User $user): JsonResponse
     {
         // No permitir que un usuario se borre a sí mismo desde el panel.
@@ -122,15 +126,7 @@ class UserController extends Controller
             return response()->json(['message' => 'No puedes eliminar tu propia cuenta.'], 422);
         }
 
-        $this->audit->record(
-            'usuarios',
-            'usuario_eliminado',
-            "Eliminó el usuario {$user->email}.",
-            $request->user(),
-            $user,
-        );
-
-        $user->delete();
+        $this->userDeletion->delete($user, $request->user());
 
         return response()->json(null, 204);
     }

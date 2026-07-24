@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Role;
 use App\Models\User;
 use App\Notifications\UserInvitationNotification;
+use App\Services\AuditLogService;
 use App\Services\ScheduleService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password as PasswordBroker;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AuthAndUserTest extends TestCase
@@ -194,19 +196,106 @@ class AuthAndUserTest extends TestCase
             ->assertJsonPath('status', 'already_set');
     }
 
-    public function test_user_is_soft_deleted_and_cannot_delete_self(): void
+    public function test_deleted_user_is_anonymized_and_email_can_be_reused(): void
     {
+        Notification::fake();
+        Storage::fake('local');
         $this->seed(RoleSeeder::class);
         $me = User::factory()->administrador()->create();
-        $other = User::factory()->soporte()->create();
+        $other = User::factory()->soporte()->create([
+            'name' => 'Agente',
+            'last_name' => 'Eliminable',
+            'email' => 'reutilizable@cc.test',
+            'avatar_path' => 'avatars/eliminable.jpg',
+        ]);
+        Storage::disk('local')->put('avatars/eliminable.jpg', 'avatar');
+        $other->createToken('android');
+        PasswordBroker::createToken($other);
+        app(ScheduleService::class)->createSchedule($other, [
+            ['weekday' => 1, 'start_time' => '09:00', 'end_time' => '17:00'],
+        ], now());
+        app(AuditLogService::class)->record(
+            'usuarios',
+            'usuario_editado',
+            'Editó el usuario reutilizable@cc.test.',
+            $me,
+            $other,
+            ['email' => 'reutilizable@cc.test', 'role' => 'soporte'],
+        );
         $this->actingAs($me);
 
         // No puede eliminarse a sí mismo.
         $this->deleteJson("/api/users/{$me->id}")->assertStatus(422);
 
-        // Elimina a otro -> soft delete (queda en la base con deleted_at).
+        // Elimina físicamente la cuenta y libera inmediatamente su correo.
         $this->deleteJson("/api/users/{$other->id}")->assertNoContent();
-        $this->assertSoftDeleted('users', ['id' => $other->id]);
+        $this->assertDatabaseMissing('users', ['id' => $other->id]);
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'tokenable_type' => User::class,
+            'tokenable_id' => $other->id,
+        ]);
+        $this->assertDatabaseMissing('password_reset_tokens', ['email' => 'reutilizable@cc.test']);
+        $this->assertDatabaseMissing('schedule_versions', ['user_id' => $other->id]);
+        $this->assertDatabaseMissing('audit_logs', ['target_email' => 'reutilizable@cc.test']);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'usuario_eliminado',
+            'target_name' => 'Agente Eliminable',
+            'target_email' => null,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'usuario_editado',
+            'target_name' => 'Agente Eliminable',
+            'target_email' => null,
+            'metadata' => null,
+            'description' => 'Editó el usuario Agente Eliminable.',
+        ]);
+        Storage::disk('local')->assertMissing('avatars/eliminable.jpg');
+
+        $this->postJson('/api/users', [
+            'name' => 'Agente',
+            'last_name' => 'Nuevo',
+            'email' => 'reutilizable@cc.test',
+            'role_id' => Role::where('name', 'soporte')->value('id'),
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'reutilizable@cc.test',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_cleanup_migration_frees_email_from_previously_soft_deleted_user(): void
+    {
+        $oldUser = User::factory()->create([
+            'name' => 'Usuario',
+            'last_name' => 'Anterior',
+            'email' => 'anterior@cc.test',
+        ]);
+        app(AuditLogService::class)->record(
+            'usuarios',
+            'usuario_creado',
+            'Creó el usuario anterior@cc.test.',
+            target: $oldUser,
+            metadata: ['email' => 'anterior@cc.test'],
+        );
+        $oldUser->delete();
+
+        $migration = require database_path('migrations/2026_07_23_010000_purge_personal_data_from_deleted_users.php');
+        $migration->up();
+
+        $this->assertDatabaseMissing('users', ['id' => $oldUser->id]);
+        $this->assertDatabaseHas('audit_logs', [
+            'target_name' => 'Usuario Anterior',
+            'target_email' => null,
+            'metadata' => null,
+            'description' => 'Creó el usuario Usuario Anterior.',
+        ]);
+
+        User::factory()->create(['email' => 'anterior@cc.test']);
+        $this->assertDatabaseHas('users', [
+            'email' => 'anterior@cc.test',
+            'deleted_at' => null,
+        ]);
     }
 
     public function test_support_role_cannot_access_user_management_api(): void

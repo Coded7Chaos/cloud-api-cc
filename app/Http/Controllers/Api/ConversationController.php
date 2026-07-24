@@ -7,6 +7,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\ConversationPresenceService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -48,7 +49,7 @@ class ConversationController extends Controller
 
         $query = Conversation::query()
             ->visibleTo($user)
-            ->when($archived, fn ($q) => $q->windowClosed(), fn ($q) => $q->windowOpen())
+            ->tap(fn (Builder $q) => $this->applyMailboxBucket($q, $user, $archived))
             ->when($dateFrom, fn ($q) => $q->whereDate('created_at', '>=', $dateFrom))
             ->when($dateTo, fn ($q) => $q->whereDate('created_at', '<=', $dateTo))
             ->when($updatedSince, fn ($q) => $q->where('updated_at', '>=', $updatedSince))
@@ -68,7 +69,12 @@ class ConversationController extends Controller
             ->map(fn (Conversation $c) => $this->transform($c));
 
         // Para el badge de la barra "Chats archivados" (solo hace falta al mirar la lista activa).
-        $archivedCount = $archived ? null : Conversation::query()->visibleTo($user)->windowClosed()->count();
+        $archivedCount = $archived
+            ? null
+            : Conversation::query()
+                ->visibleTo($user)
+                ->tap(fn (Builder $q) => $this->applyMailboxBucket($q, $user, true))
+                ->count();
 
         return response()->json([
             'data' => $conversations,
@@ -81,6 +87,35 @@ class ConversationController extends Controller
                 'total' => $paginator?->total(),
             ], fn ($value) => $value !== null),
         ]);
+    }
+
+    /**
+     * Un soporte conserva en su bandeja activa todos los chats que ya tomó,
+     * aunque todavía no haya respondido o haya cerrado la ventana de 24h. Los
+     * chats sin dueño sólo aparecen mientras siguen atendibles y el agente se
+     * encuentra en horario. El administrador mantiene la división histórica
+     * por ventana abierta/cerrada.
+     */
+    private function applyMailboxBucket(Builder $query, User $user, bool $archived): void
+    {
+        if ($user->hasRole('administrador')) {
+            $archived ? $query->windowClosed() : $query->windowOpen();
+
+            return;
+        }
+
+        if ($archived) {
+            $query->whereNull('assigned_user_id')->windowClosed();
+
+            return;
+        }
+
+        $query->where(function (Builder $q) use ($user): void {
+            $q->where('assigned_user_id', $user->id)
+                ->orWhere(function (Builder $unassigned): void {
+                    $unassigned->whereNull('assigned_user_id')->windowOpen();
+                });
+        });
     }
 
     /**

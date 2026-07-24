@@ -146,6 +146,41 @@ class ConversationVisibilityTest extends TestCase
         $this->assertSame($agentA->id, $conversation2->fresh()->assigned_user_id);
     }
 
+    public function test_unclaimed_chat_is_visible_to_all_scheduled_agents_until_one_opens_it(): void
+    {
+        $agentA = $this->agent();
+        $agentB = $this->agent();
+        $conversation = $this->conversationWithInboundAt(now()->subMinute());
+
+        $this->actingAs($agentA);
+        $this->assertContains(
+            $conversation->id,
+            collect($this->getJson('/api/conversations')->assertOk()->json('data'))->pluck('id'),
+        );
+
+        $this->actingAs($agentB);
+        $this->assertContains(
+            $conversation->id,
+            collect($this->getJson('/api/conversations')->assertOk()->json('data'))->pluck('id'),
+        );
+
+        // A lo abre y se lo queda, pero todavía no responde.
+        $this->actingAs($agentA);
+        $this->getJson("/api/conversations/{$conversation->id}")->assertOk();
+        $this->assertDatabaseCount('messages', 1);
+        $this->assertContains(
+            $conversation->id,
+            collect($this->getJson('/api/conversations')->assertOk()->json('data'))->pluck('id'),
+        );
+
+        // B deja de verlo apenas el reclamo atómico ya está confirmado.
+        $this->actingAs($agentB);
+        $this->assertNotContains(
+            $conversation->id,
+            collect($this->getJson('/api/conversations')->assertOk()->json('data'))->pluck('id'),
+        );
+    }
+
     public function test_claiming_a_conversation_cancels_notifications_for_every_original_recipient(): void
     {
         $agentA = $this->agent();
@@ -253,36 +288,39 @@ class ConversationVisibilityTest extends TestCase
         $this->assertDatabaseCount('messages', 1);
     }
 
-    public function test_closed_window_conversation_is_archived_and_hidden_from_default_list(): void
+    public function test_assigned_conversation_stays_in_support_mailbox_after_window_closes(): void
     {
         $agent = $this->agent();
         $expired = $this->conversationWithInboundAt(now()->subHours(25), $agent->id);
         $active = $this->conversationWithInboundAt(now()->subHours(1), $agent->id);
+        $expiredUnclaimed = $this->conversationWithInboundAt(now()->subHours(25));
 
         $this->actingAs($agent);
 
         $activeRes = $this->getJson('/api/conversations')->assertOk();
         $activeIds = collect($activeRes->json('data'))->pluck('id');
-        $this->assertFalse($activeIds->contains($expired->id));
+        $this->assertTrue($activeIds->contains($expired->id));
         $this->assertTrue($activeIds->contains($active->id));
+        $this->assertFalse($activeIds->contains($expiredUnclaimed->id));
         $activeRes->assertJsonPath('meta.archived_count', 1);
 
         $archivedIds = collect($this->getJson('/api/conversations?archived=1')->assertOk()->json('data'))->pluck('id');
-        $this->assertTrue($archivedIds->contains($expired->id));
+        $this->assertFalse($archivedIds->contains($expired->id));
         $this->assertFalse($archivedIds->contains($active->id));
+        $this->assertTrue($archivedIds->contains($expiredUnclaimed->id));
     }
 
     public function test_archived_list_can_be_filtered_by_registration_date_range(): void
     {
         $agent = $this->agent();
 
-        $fromJune = $this->conversationWithInboundAt(now()->subDays(40), $agent->id);
+        $fromJune = $this->conversationWithInboundAt(now()->subDays(40));
         $fromJune->forceFill(['created_at' => '2026-06-20 10:00:00'])->save();
 
-        $fromJuly = $this->conversationWithInboundAt(now()->subDays(10), $agent->id);
+        $fromJuly = $this->conversationWithInboundAt(now()->subDays(10));
         $fromJuly->forceFill(['created_at' => '2026-07-12 15:00:00'])->save();
 
-        $fromAugust = $this->conversationWithInboundAt(now()->subDays(5), $agent->id);
+        $fromAugust = $this->conversationWithInboundAt(now()->subDays(5));
         $fromAugust->forceFill(['created_at' => '2026-08-02 09:00:00'])->save();
 
         $this->actingAs($agent);
