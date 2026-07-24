@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendAutomaticReply;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -106,19 +107,21 @@ class WhatsappWebhookController extends Controller
 
         $type = $payload['type'] ?? 'text';
 
-        $message = Message::updateOrCreate(
-            ['wa_message_id' => $waMessageId], // clave de idempotencia
-            [
-                'conversation_id' => $conversation->id,
-                'direction' => 'inbound',
-                'type' => $type,
-                'body' => $this->extractBody($payload, $type),
-                'status' => 'delivered',
-                'sent_at' => isset($payload['timestamp'])
-                    ? now()->setTimestamp((int) $payload['timestamp'])
-                    : now(),
-            ],
-        );
+        $message = Message::create([
+            'conversation_id' => $conversation->id,
+            'wa_message_id' => $waMessageId,
+            'direction' => 'inbound',
+            'type' => $type,
+            'body' => $this->extractBody($payload, $type),
+            'status' => 'delivered',
+            'sent_at' => isset($payload['timestamp'])
+                ? now()->setTimestamp((int) $payload['timestamp'])
+                : now(),
+        ]);
+
+        $conversation->update(['last_message_at' => now()]);
+        $this->notifications->notifyInbound($conversation, $message, now());
+        SendAutomaticReply::dispatch($conversation->id, $message->id);
 
         // Si trae media y todavía no la descargamos, la bajamos al storage privado.
         $mediaId = data_get($payload, "{$type}.id");

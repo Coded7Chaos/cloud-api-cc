@@ -8,13 +8,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['contact_id', 'assigned_user_id', 'status', 'last_message_at'])]
+#[Fillable(['contact_id', 'assigned_user_id', 'status', 'last_message_at', 'auto_reply_sent'])]
 class Conversation extends Model
 {
     protected function casts(): array
     {
         return [
             'last_message_at' => 'datetime',
+            'auto_reply_sent' => 'boolean',
         ];
     }
 
