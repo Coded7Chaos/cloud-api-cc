@@ -2,17 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SendAutomaticReply;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\AutoReplyService;
 use App\Services\PushNotificationService;
 use App\Services\ScheduleService;
+use App\Services\WhatsappService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -20,6 +24,13 @@ use Tests\TestCase;
 class WhatsappWebhookTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Queue::fake([SendAutomaticReply::class]);
+    }
 
     protected function tearDown(): void
     {
@@ -111,6 +122,200 @@ class WhatsappWebhookTest extends TestCase
             'direction' => 'inbound',
             'body' => 'Hola, una consulta',
         ]);
+    }
+
+    public function test_first_inbound_message_sends_an_automatic_reply(): void
+    {
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('sendText')
+                ->once()
+                ->withArgs(function (string $to, string $body) {
+                    $this->assertSame('59170000005', $to);
+                    $this->assertSame('Hola, recibimos tu mensaje. Un agente te atenderá en breve.', $body);
+
+                    return true;
+                })
+                ->andReturn(['messages' => [['id' => 'wamid.AUTO_REPLY']]]);
+        });
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000005', 'wamid.AUTO_FIRST', 'Hola'))
+            ->assertOk();
+
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000005'))->firstOrFail();
+        $inbound = Message::where('wa_message_id', 'wamid.AUTO_FIRST')->firstOrFail();
+        Queue::assertPushed(SendAutomaticReply::class);
+
+        app(AutoReplyService::class)->handleInboundMessage($conversation, $inbound);
+
+        $this->assertTrue((bool) $conversation->fresh()->auto_reply_sent);
+        $this->assertDatabaseHas('messages', [
+            'conversation_id' => $conversation->id,
+            'direction' => 'outbound',
+            'body' => 'Hola, recibimos tu mensaje. Un agente te atenderá en breve.',
+        ]);
+    }
+
+    public function test_webhook_only_queues_the_automatic_reply(): void
+    {
+        Queue::fake();
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000055', 'wamid.AUTO_QUEUED', 'Hola'))
+            ->assertOk();
+
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000055'))->firstOrFail();
+        $message = Message::where('wa_message_id', 'wamid.AUTO_QUEUED')->firstOrFail();
+
+        Queue::assertPushed(SendAutomaticReply::class);
+        $this->assertFalse((bool) $conversation->auto_reply_sent);
+        $this->assertSame($conversation->id, $message->conversation_id);
+    }
+
+    public function test_failed_auto_reply_is_not_marked_as_sent_and_can_be_retried(): void
+    {
+        $contact = Contact::create(['wa_id' => '59170000056', 'profile_name' => 'Cliente']);
+        $conversation = $contact->conversations()->create(['status' => 'open']);
+        $message = $conversation->messages()->create([
+            'wa_message_id' => 'wamid.AUTO_RETRY_INBOUND',
+            'direction' => 'inbound',
+            'type' => 'text',
+            'body' => 'Hola',
+            'status' => 'delivered',
+            'sent_at' => now(),
+        ]);
+
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('sendText')
+                ->once()
+                ->andThrow(new \RuntimeException('Meta temporalmente no disponible'));
+        });
+
+        try {
+            app(AutoReplyService::class)->handleInboundMessage($conversation, $message);
+            $this->fail('El fallo de Meta debía propagarse para que la cola reintente.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Meta temporalmente no disponible', $e->getMessage());
+        }
+
+        $this->assertFalse((bool) $conversation->fresh()->auto_reply_sent);
+        $this->assertSame(0, $conversation->messages()->where('direction', 'outbound')->count());
+
+        $this->forgetMock(WhatsappService::class);
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('sendText')
+                ->once()
+                ->andReturn(['messages' => [['id' => 'wamid.AUTO_RETRY_OK']]]);
+        });
+
+        $this->assertTrue(app(AutoReplyService::class)->handleInboundMessage($conversation, $message));
+        $this->assertTrue((bool) $conversation->fresh()->auto_reply_sent);
+        $this->assertDatabaseHas('messages', ['wa_message_id' => 'wamid.AUTO_RETRY_OK', 'status' => 'sent']);
+    }
+
+    public function test_same_conversation_does_not_receive_two_auto_replies(): void
+    {
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('sendText')
+                ->andReturn(['messages' => [['id' => 'wamid.AUTO_REPLY']]]);
+        });
+
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000006', 'wamid.AUTO_DUP_1', 'Primero'))
+            ->assertOk();
+        $this->postJson('/api/whatsapp/webhook', $this->inboundTextPayload('59170000006', 'wamid.AUTO_DUP_2', 'Segundo'))
+            ->assertOk();
+
+        $conversation = Conversation::whereHas('contact', fn ($q) => $q->where('wa_id', '59170000006'))->firstOrFail();
+        foreach ($conversation->messages()->where('direction', 'inbound')->get() as $inbound) {
+            app(AutoReplyService::class)->handleInboundMessage($conversation, $inbound);
+        }
+
+        $this->assertTrue((bool) $conversation->fresh()->auto_reply_sent);
+        $this->assertSame(1, $conversation->messages()->where('direction', 'outbound')->where('body', 'Hola, recibimos tu mensaje. Un agente te atenderá en breve.')->count());
+    }
+
+    public function test_auto_reply_is_not_sent_for_agent_or_system_messages(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldNotReceive('sendText');
+        });
+
+        $contact = Contact::create(['wa_id' => '59170000007', 'profile_name' => 'Cliente']);
+        $conversation = $contact->conversations()->create(['status' => 'open']);
+        $message = $conversation->messages()->create([
+            'wa_message_id' => 'wamid.SYSTEM_OUTBOUND',
+            'direction' => 'outbound',
+            'type' => 'text',
+            'body' => 'No responder',
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+
+        app(AutoReplyService::class)->handleInboundMessage($conversation, $message);
+    }
+
+    public function test_auto_reply_is_not_sent_for_assigned_conversations(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldNotReceive('sendText');
+        });
+
+        $agent = User::factory()->soporte()->create();
+        $contact = Contact::create(['wa_id' => '59170000008', 'profile_name' => 'Cliente asignado']);
+        $conversation = $contact->conversations()->create([
+            'assigned_user_id' => $agent->id,
+            'status' => 'open',
+        ]);
+
+        $message = $conversation->messages()->create([
+            'wa_message_id' => 'wamid.ASSIGNED_INBOUND',
+            'direction' => 'inbound',
+            'type' => 'text',
+            'body' => 'Hola',
+            'status' => 'delivered',
+            'sent_at' => now(),
+        ]);
+
+        app(AutoReplyService::class)->handleInboundMessage($conversation, $message);
+        $this->assertFalse((bool) $conversation->fresh()->auto_reply_sent);
+    }
+
+    public function test_auto_reply_does_not_create_a_loop_for_the_system_message(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $this->mock(WhatsappService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('sendText')
+                ->once()
+                ->andReturn(['messages' => [['id' => 'wamid.AUTO_REPLY_LOOP']]]);
+        });
+
+        $contact = Contact::create(['wa_id' => '59170000009', 'profile_name' => 'Cliente bucle']);
+        $conversation = $contact->conversations()->create(['status' => 'open']);
+        $inbound = $conversation->messages()->create([
+            'wa_message_id' => 'wamid.LOOP_INBOUND',
+            'direction' => 'inbound',
+            'type' => 'text',
+            'body' => 'Hola',
+            'status' => 'delivered',
+            'sent_at' => now(),
+        ]);
+
+        app(AutoReplyService::class)->handleInboundMessage($conversation, $inbound);
+
+        $systemMessage = $conversation->messages()->create([
+            'wa_message_id' => 'wamid.LOOP_SYSTEM',
+            'direction' => 'outbound',
+            'type' => 'text',
+            'body' => 'Hola, recibimos tu mensaje. Un agente te atenderá en breve.',
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+
+        app(AutoReplyService::class)->handleInboundMessage($conversation, $systemMessage);
+        $this->assertSame(2, $conversation->messages()->where('direction', 'outbound')->where('body', 'Hola, recibimos tu mensaje. Un agente te atenderá en breve.')->count());
     }
 
     public function test_new_inbound_chat_notifies_every_support_agent_in_working_hours_without_assigning_it(): void
@@ -209,8 +414,9 @@ class WhatsappWebhookTest extends TestCase
         $newMessage = Message::where('wa_message_id', 'wamid.NEW')->firstOrFail();
         $this->assertNotSame($oldConversation->id, $newMessage->conversation_id);
 
-        // La vieja queda intacta: sigue con un solo mensaje, tal como estaba.
+        // La vieja conserva exactamente su mensaje entrante.
         $this->assertSame(1, $oldConversation->messages()->count());
+        $this->assertSame('Hola en junio', $oldConversation->messages()->where('wa_message_id', 'wamid.OLD')->firstOrFail()->body);
     }
 
     public function test_redelivered_webhook_after_the_window_closed_still_does_not_duplicate_or_move_the_message(): void

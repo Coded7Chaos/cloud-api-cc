@@ -126,7 +126,7 @@ class DatabaseSeeder extends Seeder
             $version->shifts()->create([
                 'weekday' => $weekday,
                 'start_time' => '09:00',
-                'end_time' => '18:00',
+                'end_time' => '23:00',
             ]);
         }
     }

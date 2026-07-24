@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['contact_id', 'assigned_user_id', 'status', 'last_message_at'])]
+#[Fillable(['contact_id', 'assigned_user_id', 'status', 'last_message_at', 'auto_reply_sent'])]
 class Conversation extends Model
 {
     /** Ventana de atención libre de WhatsApp: horas desde el último mensaje del cliente. */
@@ -21,6 +21,7 @@ class Conversation extends Model
     {
         return [
             'last_message_at' => 'datetime',
+            'auto_reply_sent' => 'boolean',
         ];
     }
 

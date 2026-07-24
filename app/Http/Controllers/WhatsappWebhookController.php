@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\MessageCreated;
+use App\Jobs\SendAutomaticReply;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Services\ConversationNotificationService;
@@ -138,6 +138,7 @@ class WhatsappWebhookController extends Controller
 
         $conversation->update(['last_message_at' => now()]);
         $this->notifications->notifyInbound($conversation, $message, now());
+        SendAutomaticReply::dispatch($conversation->id, $message->id);
 
         // Si trae media y todavía no la descargamos, la bajamos al storage privado.
         $mediaId = data_get($payload, "{$type}.id");
