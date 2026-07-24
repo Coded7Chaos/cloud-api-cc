@@ -143,6 +143,14 @@ class MessageController extends Controller
         // vez de confiar en el valor que quedó en memoria.
         $message->status = Message::whereKey($message->getKey())->value('status');
 
-        return response()->json(['data' => $message->toApiArray()], 201);
+        $deliveryFailed = $message->status === 'failed';
+
+        return response()->json([
+            'data' => $message->toApiArray(),
+            'message' => $deliveryFailed
+                ? 'El mensaje quedó guardado, pero WhatsApp rechazó la entrega.'
+                : 'Mensaje enviado.',
+            'delivery_failed' => $deliveryFailed,
+        ], 201);
     }
 }

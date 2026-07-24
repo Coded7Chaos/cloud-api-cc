@@ -62,6 +62,49 @@ class MessageWindowTest extends TestCase
         $this->assertDatabaseHas('messages', ['conversation_id' => $conversation->id, 'direction' => 'outbound']);
     }
 
+    public function test_versioned_mobile_endpoint_returns_the_message_sent_to_whatsapp(): void
+    {
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fake(['graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.MOBILE1']]], 200)]);
+
+        $this->postJson("/api/v1/conversations/{$conversation->id}/messages", ['body' => 'Respuesta desde Android'])
+            ->assertCreated()
+            ->assertJsonPath('data.body', 'Respuesta desde Android')
+            ->assertJsonPath('data.status', 'sent')
+            ->assertJsonPath('delivery_failed', false);
+
+        $this->assertDatabaseHas('messages', [
+            'conversation_id' => $conversation->id,
+            'wa_message_id' => 'wamid.MOBILE1',
+            'status' => 'sent',
+        ]);
+    }
+
+    public function test_failed_whatsapp_delivery_is_visible_to_the_mobile_client(): void
+    {
+        $this->actingAsAgent();
+        $conversation = $this->conversationWithLastInboundAt(now()->subHours(2));
+
+        Http::fake(['graph.facebook.com/*' => Http::response([
+            'error' => ['message' => 'Invalid OAuth access token.'],
+        ], 401)]);
+
+        $this->postJson("/api/v1/conversations/{$conversation->id}/messages", ['body' => 'Mensaje que Meta rechazará'])
+            ->assertCreated()
+            ->assertJsonPath('data.body', 'Mensaje que Meta rechazará')
+            ->assertJsonPath('data.status', 'failed')
+            ->assertJsonPath('delivery_failed', true)
+            ->assertJsonPath('message', 'El mensaje quedó guardado, pero WhatsApp rechazó la entrega.');
+
+        $this->assertDatabaseHas('messages', [
+            'conversation_id' => $conversation->id,
+            'body' => 'Mensaje que Meta rechazará',
+            'status' => 'failed',
+        ]);
+    }
+
     public function test_cannot_send_after_the_24_hour_window_expires(): void
     {
         $this->actingAsAgent();
